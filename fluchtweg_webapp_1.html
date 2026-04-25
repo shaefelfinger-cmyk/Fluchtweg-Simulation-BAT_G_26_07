@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Fluchtweg">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Adaptive Fluchtwegsteuerung</title>
+<style>
+  :root {
+    --bg:       #14141f;
+    --canvas:   #0d0d1a;
+    --panel:    #1a1a2e;
+    --wall:     #22223a;
+    --wall-b:   #33335a;
+    --room:     #16162a;
+    --edge:     #2a2a4a;
+    --p-ada:    #22c55e;
+    --g-ada:    #0a2a10;
+    --p-sta:    #f97316;
+    --g-sta:    #2a1000;
+    --n-norm:   #3b82f6;
+    --n-exit:   #22c55e;
+    --n-fire:   #ef4444;
+    --n-smoke:  #a78bfa;
+    --n-block:  #f59e0b;
+    --txt:      #e2e8f0;
+    --muted:    #4a5568;
+    --btn:      #252540;
+    --btn-h:    #353560;
+    --hi:       #fbbf24;
+    --log-bg:   #0a0a18;
+    --hdr-s:    #2a1800;
+    --hdr-a:    #0a2818;
+    --lbl-s:    #f97316;
+    --lbl-a:    #22c55e;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  body { background: var(--bg); color: var(--txt); font-family: 'Helvetica Neue', Helvetica, sans-serif; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
+
+  /* ── TOP BAR ── */
+  #topbar { display: flex; gap: 6px; padding: 8px 10px 0; flex-shrink: 0; }
+  .hdr { flex: 1; padding: 6px 12px; border-radius: 6px 6px 0 0; display: flex; align-items: center; gap: 8px; }
+  .hdr-s { background: var(--hdr-s); }
+  .hdr-a { background: var(--hdr-a); }
+  .hdr-title { font-size: 12px; font-weight: 700; }
+  .hdr-s .hdr-title { color: var(--lbl-s); }
+  .hdr-a .hdr-title { color: var(--lbl-a); }
+  .hdr-sub { font-size: 10px; color: #7a3a00; }
+  .hdr-a .hdr-sub { color: #0a4a20; }
+
+  /* ── CANVAS AREA ── */
+  #canvases { display: flex; gap: 6px; padding: 0 10px; flex: 1; min-height: 0; }
+  .cv-wrap { flex: 1; border-radius: 0 0 6px 6px; overflow: hidden; position: relative; }
+  .cv-wrap-s { border: 1px solid var(--lbl-s); background: var(--canvas); }
+  .cv-wrap-a { border: 1px solid var(--lbl-a); background: var(--canvas); }
+  canvas { width: 100%; height: 100%; display: block; cursor: crosshair; touch-action: none; }
+
+  /* ── BOTTOM PANEL ── */
+  #bottom { display: flex; flex-direction: column; gap: 0; padding: 6px 10px 6px; flex-shrink: 0; background: var(--panel); margin: 4px 10px 6px; border-radius: 8px; }
+
+  /* ── CONTROLS ROW ── */
+  #controls { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; padding: 4px 0; }
+
+  .mode-group { display: flex; gap: 4px; }
+  .mode-btn { padding: 5px 10px; border-radius: 5px; border: 1.5px solid transparent; font-size: 12px; cursor: pointer; background: var(--btn); color: var(--txt); transition: all .15s; white-space: nowrap; }
+  .mode-btn.active-fire   { background: #3a1010; color: var(--n-fire);  border-color: var(--n-fire); }
+  .mode-btn.active-smoke  { background: #1e1040; color: var(--n-smoke); border-color: var(--n-smoke); }
+  .mode-btn.active-block  { background: #3a2a00; color: var(--n-block); border-color: var(--n-block); }
+
+  .action-btn { padding: 5px 10px; border-radius: 5px; border: none; font-size: 12px; cursor: pointer; background: var(--btn); color: var(--txt); transition: background .15s; white-space: nowrap; }
+  .action-btn:hover, .action-btn:active { background: var(--btn-h); }
+
+  .divider { width: 1px; height: 24px; background: var(--wall-b); flex-shrink: 0; }
+
+  /* ── STATS ROW ── */
+  #stats { display: flex; gap: 12px; padding: 4px 0 0; border-top: 1px solid var(--wall-b); flex-wrap: wrap; }
+  .stat { display: flex; align-items: center; gap: 4px; font-size: 11px; }
+  .stat-lbl { color: var(--muted); }
+  .stat-val { font-weight: 700; min-width: 36px; }
+  .stat-val.sta { color: var(--lbl-s); }
+  .stat-val.ada { color: var(--lbl-a); }
+  .stat-val.hi  { color: var(--hi); }
+  .stat-val.red { color: #ef4444; }
+
+  /* ── STATUS BAR ── */
+  #statusbar { font-size: 11px; color: var(--hi); padding: 2px 0 0; min-height: 16px; }
+
+  /* ── HIDE STATIC TOGGLE ── */
+  #toggle-static { font-size: 11px; color: var(--muted); cursor: pointer; padding: 4px 8px; border-radius: 4px; background: var(--btn); border: none; }
+
+  /* ── INFO TOOLTIP on canvas ── */
+  #tooltip { position: fixed; background: #08081a; border: 1.5px solid var(--lbl-a); border-radius: 6px; padding: 8px 10px; font-family: 'Courier New', monospace; font-size: 11px; color: var(--txt); pointer-events: none; display: none; z-index: 100; max-width: 220px; line-height: 1.6; }
+  #tooltip.static { border-color: var(--lbl-s); }
+
+  @media (max-width: 600px) {
+    .hdr-sub { display: none; }
+    .mode-btn, .action-btn { font-size: 11px; padding: 4px 7px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <div class="hdr hdr-s" id="hdr-s">
+    <span class="hdr-title">STATISCHES SYSTEM</span>
+    <span class="hdr-sub">Vordefiniert – reagiert NICHT</span>
+  </div>
+  <div class="hdr hdr-a">
+    <span class="hdr-title">ADAPTIVES SYSTEM</span>
+    <span class="hdr-sub">Dijkstra – berechnet in Echtzeit</span>
+  </div>
+</div>
+
+<div id="canvases">
+  <div class="cv-wrap cv-wrap-s" id="cv-wrap-s">
+    <canvas id="canvas-s"></canvas>
+  </div>
+  <div class="cv-wrap cv-wrap-a">
+    <canvas id="canvas-a"></canvas>
+  </div>
+</div>
+
+<div id="bottom">
+  <div id="controls">
+    <div class="mode-group">
+      <button class="mode-btn active-fire" id="btn-fire"    onclick="setMode('fire')">🔥 Brand</button>
+      <button class="mode-btn"             id="btn-smoke"   onclick="setMode('smoke')">🌫 Rauch</button>
+      <button class="mode-btn"             id="btn-blocked" onclick="setMode('blocked')">🚧 Blockierung</button>
+    </div>
+    <div class="divider"></div>
+    <button class="action-btn" onclick="reset()">↺ Reset</button>
+    <button class="action-btn" onclick="sc1()">🧪 Sz.1</button>
+    <button class="action-btn" onclick="sc2()">🧪 Sz.2</button>
+    <button class="action-btn" onclick="sc3()">🧪 Sz.3</button>
+    <div class="divider"></div>
+    <button id="toggle-static" onclick="toggleStatic()">◧ Statisch ausblenden</button>
+  </div>
+  <div id="stats">
+    <div class="stat"><span class="stat-lbl">Stat. blockiert:</span><span class="stat-val sta" id="sv-sbl">–</span></div>
+    <div class="stat"><span class="stat-lbl">Ø stat. Weg:</span><span class="stat-val sta" id="sv-sd">–</span></div>
+    <div class="stat"><span class="stat-lbl">Ø ada. Weg:</span><span class="stat-val ada" id="sv-ad">–</span></div>
+    <div class="stat"><span class="stat-lbl">Differenz:</span><span class="stat-val hi"  id="sv-sv">–</span></div>
+    <div class="stat"><span class="stat-lbl">Nicht erreichbar:</span><span class="stat-val red" id="sv-ur">–</span></div>
+  </div>
+  <div id="statusbar">Bereit. Modus wählen und Knoten anklicken.</div>
+</div>
+
+<div id="tooltip"></div>
+
+<script>
+// ─────────────────────────────────────────────
+//  GRAPH DATA
+// ─────────────────────────────────────────────
+const NODES = {
+  11: [360, 30,  "Ausgang N", "exit"],
+  12: [660, 225, "Ausgang O", "exit"],
+  13: [200, 450, "Ausgang S", "exit"],
+   1: [200, 110, "Büro A",   "normal"],
+   2: [200, 225, "Büro B",   "normal"],
+   3: [200, 355, "Lager",    "normal"],
+   4: [360, 110, "Flur N",   "normal"],
+   5: [360, 225, "Zentrum",  "normal"],
+   6: [360, 355, "Flur S",   "normal"],
+   7: [510, 110, "Büro C",   "normal"],
+   8: [510, 225, "Konferenz","normal"],
+   9: [510, 355, "Kantine",  "normal"],
+  10: [360, 450, "Technik",  "normal"],
+};
+const EDGES = [
+  [1,2,3],[2,3,3],[4,5,3],[5,6,3],[7,8,3],[8,9,3],[6,10,3],
+  [1,4,4],[4,7,4],[2,5,3],[5,8,3],[3,6,4],[6,9,3],
+  [4,11,3],[8,12,3],[3,13,3],[10,13,4],
+];
+const STATIC_ROUTES = {
+   1:[1,4,11], 2:[2,5,4,11], 3:[3,13],   4:[4,11],
+   5:[5,4,11], 6:[6,5,4,11], 7:[7,4,11], 8:[8,12],
+   9:[9,6,5,4,11], 10:[10,6,5,4,11],
+};
+const INNER = Object.keys(NODES).map(Number).filter(n => NODES[n][3]==="normal");
+const EXITS  = Object.keys(NODES).map(Number).filter(n => NODES[n][3]==="exit");
+const VW=720, VH=480;
+const DANGER_W = {normal:0, smoke:15, fire:999, blocked:999};
+const C = {
+  bg:"#14141f", canvas:"#0d0d1a", wall:"#22223a", wallB:"#33335a",
+  room:"#16162a", edge:"#2a2a4a",
+  pAda:"#22c55e", gAda:"#0a2a10", pSta:"#f97316", gSta:"#2a1000",
+  nNorm:"#3b82f6", nExit:"#22c55e", nFire:"#ef4444", nSmoke:"#a78bfa", nBlock:"#f59e0b",
+  txt:"#e2e8f0", muted:"#4a5568", hi:"#fbbf24", logBg:"#0a0a18",
+  lblS:"#f97316", lblA:"#22c55e",
+};
+
+// ─────────────────────────────────────────────
+//  STATE
+// ─────────────────────────────────────────────
+let nodeStates = {};
+let selected   = null;
+let currentMode = "fire";
+let showStatic  = true;
+
+// ─────────────────────────────────────────────
+//  ALGORITHMS
+// ─────────────────────────────────────────────
+function edgeKey(a,b){ return Math.min(a,b)+","+Math.max(a,b); }
+
+function buildAdj(states) {
+  const adj = {};
+  for (const n in NODES) adj[n] = [];
+  for (const [a,b,w] of EDGES) {
+    const da = DANGER_W[states[a]||"normal"] || 0;
+    const db = DANGER_W[states[b]||"normal"] || 0;
+    const wt = w + (da+db)/2;
+    adj[a].push([b,wt]); adj[b].push([a,wt]);
+  }
+  return adj;
+}
+
+function dijkstra(src, adj) {
+  const dist = {}, prev = {};
+  for (const n in NODES) { dist[n]=Infinity; prev[n]=null; }
+  dist[src] = 0;
+  const pq = [[0,src]]; // [dist, node]
+  while (pq.length) {
+    pq.sort((a,b)=>a[0]-b[0]);
+    const [d,u] = pq.shift();
+    if (d > dist[u]) continue;
+    for (const [v,w] of adj[u]) {
+      const nd = d+w;
+      if (nd < dist[v]) { dist[v]=nd; prev[v]=u; pq.push([nd,v]); }
+    }
+  }
+  return {dist,prev};
+}
+
+function pathDist(path) {
+  const em = {};
+  for (const [a,b,w] of EDGES) em[edgeKey(a,b)] = w;
+  let d=0;
+  for (let i=0;i<path.length-1;i++) d += em[edgeKey(path[i],path[i+1])]||5;
+  return Math.round(d*10)/10;
+}
+
+function routeAffected(nid, states) {
+  const route = STATIC_ROUTES[nid]||[];
+  return route.some(n => ["fire","blocked","smoke"].includes(states[n]||"normal"));
+}
+
+function computeAdaptive(states) {
+  if (!Object.keys(states).length) {
+    const res = {};
+    for (const nid of INNER) {
+      const r = STATIC_ROUTES[nid];
+      if (r) res[nid] = {exit:r[r.length-1], path:[...r], dist:pathDist(r)};
+    }
+    return res;
+  }
+  const adj = buildAdj(states);
+  const edMap = {}, epMap = {};
+  for (const eid of EXITS) { const r=dijkstra(eid,adj); edMap[eid]=r.dist; epMap[eid]=r.prev; }
+
+  const res = {};
+  for (const nid of INNER) {
+    if (!routeAffected(nid, states)) {
+      const r=STATIC_ROUTES[nid];
+      if (r) res[nid]={exit:r[r.length-1],path:[...r],dist:pathDist(r)};
+      continue;
+    }
+    let bestE=null, bestD=Infinity;
+    for (const eid of EXITS) { if (edMap[eid][nid]<bestD){bestD=edMap[eid][nid];bestE=eid;} }
+    if (!bestE||bestD>=9000){res[nid]=null;continue;}
+    const path=[nid]; let cur=nid;
+    while(cur!=bestE){const p=epMap[bestE][cur];if(!p)break;path.push(p);cur=p;}
+    res[nid]={exit:bestE,path,dist:Math.round(bestD*10)/10};
+  }
+  return res;
+}
+
+function computeStatic(states) {
+  const em = {};
+  for (const [a,b,w] of EDGES) em[edgeKey(a,b)]=w;
+  const res={};
+  for (const nid in STATIC_ROUTES) {
+    const route=STATIC_ROUTES[nid];
+    let dist=0;
+    for(let i=0;i<route.length-1;i++) dist+=em[edgeKey(route[i],route[i+1])]||5;
+    const blocked=route.filter(n=>["fire","blocked"].includes(states[n]||"normal"));
+    res[nid]={exit:route[route.length-1],path:[...route],dist:Math.round(dist*10)/10,blocked};
+  }
+  return res;
+}
+
+function pathEdgeSet(paths, sel, showAll) {
+  const out={};
+  const targets = (sel&&sel in paths&&paths[sel]) ? [sel] : (showAll?Object.keys(paths):[]);
+  for (const nid of targets) {
+    const r=paths[nid]; if(!r)continue;
+    for(let i=0;i<r.path.length-1;i++){
+      const a=r.path[i],b=r.path[i+1];
+      out[edgeKey(a,b)]=[a,b];
+    }
+  }
+  return out;
+}
+
+// ─────────────────────────────────────────────
+//  RENDERING
+// ─────────────────────────────────────────────
+const cvS  = document.getElementById("canvas-s");
+const cvA  = document.getElementById("canvas-a");
+const ctxS = cvS.getContext("2d");
+const ctxA = cvA.getContext("2d");
+
+function resize() {
+  for (const [cv,wrap] of [[cvS,document.getElementById("cv-wrap-s")],[cvA,document.querySelector(".cv-wrap-a")]]) {
+    cv.width  = wrap.clientWidth  * devicePixelRatio;
+    cv.height = wrap.clientHeight * devicePixelRatio;
+    cv.style.width  = wrap.clientWidth  + "px";
+    cv.style.height = wrap.clientHeight + "px";
+  }
+}
+
+function scale(ctx) {
+  const W=ctx.canvas.width/devicePixelRatio, H=ctx.canvas.height/devicePixelRatio;
+  const m=14;
+  return {sx:(W-2*m)/VW, sy:(H-2*m)/VH, px:m, py:m};
+}
+
+function nodePos(nid, s) {
+  return [NODES[nid][0]*s.sx+s.px, NODES[nid][1]*s.sy+s.py];
+}
+
+function nodeR(nid) { return NODES[nid][3]==="exit" ? 20 : 16; }
+
+function nodeColor(nid, states) {
+  if (NODES[nid][3]==="exit") {
+    return (states[nid]==="blocked") ? C.nBlock : C.nExit;
+  }
+  return {normal:C.nNorm,fire:C.nFire,smoke:C.nSmoke,blocked:C.nBlock}[states[nid]||"normal"];
+}
+
+const ROOMS = [
+  [1, 130,65,280,175,"Büro A"],
+  [2, 130,180,280,300,"Büro B"],
+  [3, 130,305,280,435,"Lager"],
+  [4, 295,65,430,175,"Flur N"],
+  [5, 295,180,430,300,"Zentrum"],
+  [6, 295,305,430,405,"Flur S"],
+  [7, 430,65,600,175,"Büro C"],
+  [8, 430,180,600,300,"Konferenz"],
+  [9, 430,305,600,435,"Kantine"],
+  [10,295,410,430,465,"Technik"],
+];
+
+function drawScene(ctx, states, pedges, sel, isStatic, sblocked) {
+  ctx.save();
+  ctx.scale(devicePixelRatio, devicePixelRatio);
+  const W=ctx.canvas.width/devicePixelRatio, H=ctx.canvas.height/devicePixelRatio;
+  ctx.clearRect(0,0,W,H);
+  const s = scale(ctx);
+
+  // Building shell
+  const bx1=60*s.sx+s.px, by1=60*s.sy+s.py, bx2=660*s.sx+s.px, by2=440*s.sy+s.py;
+  ctx.fillStyle=C.wall; ctx.strokeStyle=C.wallB; ctx.lineWidth=2;
+  ctx.fillRect(bx1,by1,bx2-bx1,by2-by1);
+  ctx.strokeRect(bx1,by1,bx2-bx1,by2-by1);
+
+  // Rooms
+  for (const [nid,rx1,ry1,rx2,ry2,lbl] of ROOMS) {
+    const st = states[nid]||"normal";
+    const fill={fire:"#2a1010",smoke:"#1a1530",blocked:"#2a2000",normal:C.room}[st];
+    ctx.fillStyle=fill;
+    ctx.strokeStyle=C.wallB; ctx.lineWidth=1;
+    ctx.setLineDash([3,4]);
+    const x1=rx1*s.sx+s.px, y1=ry1*s.sy+s.py, x2=rx2*s.sx+s.px, y2=ry2*s.sy+s.py;
+    ctx.fillRect(x1,y1,x2-x1,y2-y1);
+    ctx.strokeRect(x1,y1,x2-x1,y2-y1);
+    ctx.setLineDash([]);
+    ctx.fillStyle="#1e1e40"; ctx.font="bold 10px Helvetica";
+    ctx.textAlign="center"; ctx.textBaseline="top";
+    ctx.fillText(lbl,(rx1+rx2)/2*s.sx+s.px,(ry1+8)*s.sy+s.py);
+  }
+
+  // Exit markers
+  const exits3 = [
+    [310*s.sx+s.px,by1-3,410*s.sx+s.px,by1+6],
+    [bx2-6,185*s.sy+s.py,bx2+2,265*s.sy+s.py],
+    [130*s.sx+s.px,by2-6,280*s.sx+s.px,by2+2],
+  ];
+  for (const [x1,y1,x2,y2] of exits3) {
+    ctx.fillStyle="#22c55e"; ctx.strokeStyle="#15803d"; ctx.lineWidth=1;
+    ctx.fillRect(x1,y1,x2-x1,y2-y1); ctx.strokeRect(x1,y1,x2-x1,y2-y1);
+  }
+
+  // Edges
+  for (const [a,b] of EDGES) {
+    const k=edgeKey(a,b), onPath=k in pedges;
+    const [ax,ay]=nodePos(a,s), [bx,by]=nodePos(b,s);
+    const danger=(["fire","blocked"].includes(states[a]||"normal")||["fire","blocked"].includes(states[b]||"normal"));
+
+    if (onPath) {
+      if (isStatic && danger) {
+        ctx.strokeStyle="#5a1010"; ctx.lineWidth=7; ctx.setLineDash([5,4]);
+        ctx.beginPath(); ctx.moveTo(ax,ay); ctx.lineTo(bx,by); ctx.stroke();
+        ctx.strokeStyle="#ef4444"; ctx.lineWidth=2.5;
+        ctx.beginPath(); ctx.moveTo(ax,ay); ctx.lineTo(bx,by); ctx.stroke();
+        ctx.setLineDash([]);
+      } else {
+        const pc=isStatic?C.pSta:C.pAda, gc=isStatic?C.gSta:C.gAda;
+        ctx.strokeStyle=gc; ctx.lineWidth=9; ctx.setLineDash([]);
+        ctx.beginPath(); ctx.moveTo(ax,ay); ctx.lineTo(bx,by); ctx.stroke();
+        ctx.strokeStyle=pc; ctx.lineWidth=4;
+        ctx.beginPath(); ctx.moveTo(ax,ay); ctx.lineTo(bx,by); ctx.stroke();
+        // Arrow
+        const [fa,fb]=pedges[k];
+        const [fax,fay]=nodePos(fa,s),[fbx,fby]=nodePos(fb,s);
+        drawArrow(ctx,fax,fay,fbx,fby,pc);
+      }
+    } else {
+      ctx.strokeStyle=C.edge; ctx.lineWidth=1.4; ctx.setLineDash([]);
+      ctx.beginPath(); ctx.moveTo(ax,ay); ctx.lineTo(bx,by); ctx.stroke();
+    }
+  }
+
+  // Nodes
+  for (const nidStr in NODES) {
+    const nid=+nidStr;
+    const [x,y]=nodePos(nid,s), r=nodeR(nid);
+    const col=nodeColor(nid,states);
+    const isExit=NODES[nid][3]==="exit", isSel=nid===sel;
+
+    // Rings
+    const rings = (isExit||isSel)?3:0;
+    ctx.strokeStyle=col; ctx.setLineDash([]);
+    for(let i=rings;i>0;i--){
+      ctx.lineWidth=0.6; ctx.globalAlpha=0.4;
+      ctx.beginPath(); ctx.arc(x,y,r+i*4,0,Math.PI*2); ctx.stroke();
+    }
+    ctx.globalAlpha=1;
+
+    if (sblocked && sblocked.has(nid)) {
+      ctx.strokeStyle="#ef4444"; ctx.lineWidth=2.5;
+      ctx.beginPath(); ctx.arc(x,y,r+3,0,Math.PI*2); ctx.stroke();
+    }
+
+    ctx.fillStyle=col;
+    ctx.strokeStyle=isSel?"#fff":(isExit&&(states[nid]||"normal")!=="blocked"?"#15803d":col);
+    ctx.lineWidth=isSel?3:2;
+    ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill(); ctx.stroke();
+
+    // Icon/label
+    const st=states[nid]||"normal";
+    ctx.textAlign="center"; ctx.textBaseline="middle";
+    if (st==="blocked") {
+      ctx.font=`${Math.round(r*1.2)}px serif`; ctx.fillText("🚧",x,y);
+    } else if (isExit) {
+      ctx.font="bold 8px Helvetica"; ctx.fillStyle="#fff"; ctx.fillText("EXIT",x,y);
+    } else if (st==="fire") {
+      ctx.font=`${Math.round(r*1.2)}px serif`; ctx.fillText("🔥",x,y);
+    } else if (st==="smoke") {
+      ctx.font=`${Math.round(r*1.2)}px serif`; ctx.fillText("🌫",x,y);
+    } else {
+      ctx.font="bold 9px Helvetica"; ctx.fillStyle="#fff"; ctx.fillText(String(nid),x,y);
+    }
+
+    ctx.font="8px Helvetica"; ctx.fillStyle=C.muted;
+    ctx.textBaseline="top"; ctx.fillText(NODES[nid][2],x,y+r+6);
+  }
+
+  ctx.restore();
+}
+
+function drawArrow(ctx,ax,ay,bx,by,col) {
+  const mx=(ax+bx)/2, my=(ay+by)/2;
+  const dx=bx-ax, dy=by-ay, ln=Math.hypot(dx,dy);
+  if(ln<10) return;
+  const ux=dx/ln, uy=dy/ln, s=11;
+  ctx.save();
+  ctx.strokeStyle=col; ctx.lineWidth=3; ctx.setLineDash([]);
+  ctx.beginPath(); ctx.moveTo(mx-ux*s,my-uy*s); ctx.lineTo(mx+ux*s,my+uy*s);
+  // arrowhead
+  const hx=mx+ux*s, hy=my+uy*s, hw=6, hl=10;
+  const px=-uy, py=ux;
+  ctx.moveTo(hx,hy);
+  ctx.lineTo(hx-ux*hl+px*hw, hy-uy*hl+py*hw);
+  ctx.moveTo(hx,hy);
+  ctx.lineTo(hx-ux*hl-px*hw, hy-uy*hl-py*hw);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawInfobox(ctx, nid, result, states, isStatic, sblocked) {
+  if (!nid || NODES[nid][3]==="exit") return;
+  const s=scale(ctx);
+  ctx.save(); ctx.scale(devicePixelRatio,devicePixelRatio);
+  const st=states[nid]||"normal";
+  const lines=[`Knoten ${nid}: ${NODES[nid][2]}`, `Status: ${st.toUpperCase()}`];
+  if (result) {
+    lines.push(`Ziel: ${NODES[result.exit][2]}  (${result.dist} m)`);
+    lines.push("Pfad: "+result.path.join(" → "));
+    if (isStatic && result.blocked && result.blocked.length) {
+      lines.push("BLOCKIERT: "+result.blocked.map(b=>NODES[b][2]).join(", "));
+      lines.push("Route NICHT angepasst!");
+    }
+  } else {
+    lines.push("Kein Weg erreichbar!");
+  }
+  const lh=16, pad=8, bw=270, bh=lines.length*lh+pad*2;
+  const bc=isStatic?"#f97316":"#22c55e";
+  ctx.fillStyle="#08081a"; ctx.strokeStyle=bc; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.roundRect(7,7,bw,bh,4); ctx.fill(); ctx.stroke();
+  ctx.font="10px 'Courier New',monospace"; ctx.textBaseline="top"; ctx.textAlign="left";
+  for(let i=0;i<lines.length;i++){
+    const warn=lines[i].includes("BLOCKIERT")||lines[i].includes("NICHT")||lines[i].includes("Kein");
+    ctx.fillStyle=warn?"#ef4444":(i===0?"#fbbf24":"#e2e8f0");
+    ctx.fillText(lines[i],15,7+pad+i*lh);
+  }
+  ctx.restore();
+}
+
+function redraw() {
+  const ap = computeAdaptive(nodeStates);
+  const sp = computeStatic(nodeStates);
+  const show = true;
+  const sbl  = new Set(selected&&sp[selected]?sp[selected].blocked:[]);
+  const peS  = pathEdgeSet(sp, selected, show);
+  const peA  = pathEdgeSet(ap, selected, show);
+
+  if (showStatic) {
+    drawScene(ctxS, nodeStates, peS, selected, true, sbl);
+    if (selected) drawInfobox(ctxS, selected, sp[selected], nodeStates, true, sbl);
+  } else {
+    ctxS.clearRect(0,0,cvS.width,cvS.height);
+  }
+  drawScene(ctxA, nodeStates, peA, selected, false, null);
+  if (selected) drawInfobox(ctxA, selected, ap[selected], nodeStates, false, null);
+
+  updateStats(ap, sp);
+}
+
+function updateStats(ap, sp) {
+  const sbl  = INNER.filter(n=>sp[n]&&sp[n].blocked&&sp[n].blocked.length).length;
+  const sdists= INNER.filter(n=>sp[n]).map(n=>sp[n].dist);
+  const adists= INNER.filter(n=>ap[n]&&ap[n]).map(n=>ap[n].dist);
+  const sa = sdists.length ? Math.round(sdists.reduce((a,b)=>a+b,0)/sdists.length*10)/10 : 0;
+  const aa = adists.length ? Math.round(adists.reduce((a,b)=>a+b,0)/adists.length*10)/10 : 0;
+  const sv = Math.round((sa-aa)*10)/10;
+  document.getElementById("sv-sbl").textContent = sbl;
+  document.getElementById("sv-sd").textContent  = sa+" m";
+  document.getElementById("sv-ad").textContent  = aa+" m";
+  document.getElementById("sv-sv").textContent  = sv>0?"+"+sv+" m":(sv<0?sv+" m":"–");
+  document.getElementById("sv-ur").textContent  = sbl;
+}
+
+// ─────────────────────────────────────────────
+//  HIT DETECTION
+// ─────────────────────────────────────────────
+function getNodeAt(ctx, mx, my) {
+  const s=scale(ctx);
+  for (const nidStr in NODES) {
+    const nid=+nidStr;
+    const [x,y]=nodePos(nid,s), r=nodeR(nid)+10;
+    if (Math.hypot(x-mx,y-my)<r) return nid;
+  }
+  return null;
+}
+
+function canvasClick(e, ctx, isStatic) {
+  const rect=e.target.getBoundingClientRect();
+  const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+  const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+  const mx=clientX-rect.left, my=clientY-rect.top;
+  const nid=getNodeAt(ctx,mx,my);
+  if (nid===null) { selected=null; redraw(); return; }
+
+  if (NODES[nid][3]==="exit") {
+    if (currentMode==="blocked") {
+      const cur=nodeStates[nid]||"normal";
+      if (cur==="blocked") delete nodeStates[nid];
+      else nodeStates[nid]="blocked";
+      selected=null;
+    } else {
+      setStatus("ℹ️ Ausgänge: nur 🚧 Blockierung möglich.");
+      return;
+    }
+  } else {
+    const cur=nodeStates[nid]||"normal";
+    if (cur===currentMode) delete nodeStates[nid];
+    else nodeStates[nid]=currentMode;
+    selected=null;
+  }
+  const icons={fire:"🔥",smoke:"🌫",blocked:"🚧",normal:"✅"};
+  const st=nodeStates[nid]||"normal";
+  setStatus(`${icons[st]||""} ${NODES[nid][2]}: ${st.toUpperCase()}`);
+  redraw();
+}
+
+// ─────────────────────────────────────────────
+//  CONTROLS
+// ─────────────────────────────────────────────
+function setMode(m) {
+  currentMode=m;
+  document.getElementById("btn-fire").className   ="mode-btn"+(m==="fire"   ?" active-fire":"");
+  document.getElementById("btn-smoke").className  ="mode-btn"+(m==="smoke"  ?" active-smoke":"");
+  document.getElementById("btn-blocked").className="mode-btn"+(m==="blocked"?" active-block":"");
+}
+
+function reset() {
+  nodeStates={}; selected=null; redraw();
+  setStatus("↺ Zurückgesetzt.");
+}
+
+function sc1() {
+  nodeStates={5:"fire",4:"smoke"}; selected=null; redraw();
+  setStatus("🧪 Szenario 1: Brand Zentrum, Rauch Flur N");
+}
+function sc2() {
+  nodeStates={8:"fire",12:"blocked",4:"smoke"}; selected=null; redraw();
+  setStatus("🧪 Szenario 2: Brand Konferenz, Ausgang O blockiert");
+}
+function sc3() {
+  nodeStates={11:"blocked",12:"blocked"}; selected=null; redraw();
+  setStatus("🧪 Szenario 3: Ausgang N + O blockiert → alle via Ausgang S");
+}
+
+function toggleStatic() {
+  showStatic=!showStatic;
+  const wrapS=document.getElementById("cv-wrap-s");
+  const hdrS=document.getElementById("hdr-s");
+  const btn=document.getElementById("toggle-static");
+  if (showStatic) {
+    wrapS.style.display=""; hdrS.style.display="";
+    btn.textContent="◧ Statisch ausblenden";
+  } else {
+    wrapS.style.display="none"; hdrS.style.display="none";
+    btn.textContent="◨ Statisch einblenden";
+  }
+  redraw();
+}
+
+function setStatus(msg) {
+  document.getElementById("statusbar").textContent=msg;
+}
+
+// ─────────────────────────────────────────────
+//  EVENTS
+// ─────────────────────────────────────────────
+cvS.addEventListener("click",  e=>canvasClick(e,ctxS,true));
+cvA.addEventListener("click",  e=>canvasClick(e,ctxA,false));
+cvS.addEventListener("touchend", e=>{e.preventDefault();canvasClick(e,ctxS,true);}, {passive:false});
+cvA.addEventListener("touchend", e=>{e.preventDefault();canvasClick(e,ctxA,false);}, {passive:false});
+
+window.addEventListener("resize", ()=>{ resize(); redraw(); });
+
+// ─────────────────────────────────────────────
+//  INIT
+// ─────────────────────────────────────────────
+resize();
+redraw();
+</script>
+</body>
+</html>
