@@ -1,0 +1,1536 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Adaptive Fluchtwegsteuerung – personenstromoptimiert</title>
+<style>
+  :root {
+    --bg:       #14141f;
+    --canvas:   #0d0d1a;
+    --panel:    #1a1a2e;
+    --wall:     #22223a;
+    --wall-b:   #33335a;
+    --room:     #16162a;
+    --edge:     #2a2a4a;
+    --p-ada:    #22c55e;
+    --g-ada:    #0a2a10;
+    --p-sta:    #f97316;
+    --g-sta:    #2a1000;
+    --n-norm:   #3b82f6;
+    --n-exit:   #22c55e;
+    --n-fire:   #ef4444;
+    --n-smoke:  #a78bfa;
+    --n-block:  #f59e0b;
+    --txt:      #e2e8f0;
+    --muted:    #4a5568;
+    --btn:      #252540;
+    --btn-h:    #353560;
+    --hi:       #fbbf24;
+    --log-bg:   #0a0a18;
+    --hdr-s:    #2a1800;
+    --hdr-a:    #0a2818;
+    --lbl-s:    #f97316;
+    --lbl-a:    #22c55e;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  body { background: var(--bg); color: var(--txt); font-family: 'Helvetica Neue', Helvetica, sans-serif; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
+
+  /* ── TOP BAR ── */
+  #topbar { display: flex; gap: 6px; padding: 8px 10px 0; flex-shrink: 0; }
+  .hdr { flex: 1; padding: 6px 12px; border-radius: 6px 6px 0 0; display: flex; align-items: center; gap: 8px; }
+  .hdr-s { background: var(--hdr-s); }
+  .hdr-a { background: var(--hdr-a); }
+  .hdr-title { font-size: 12px; font-weight: 700; }
+  .hdr-s .hdr-title { color: var(--lbl-s); }
+  .hdr-a .hdr-title { color: var(--lbl-a); }
+  .hdr-sub { font-size: 10px; color: #7a3a00; }
+  .hdr-a .hdr-sub { color: #0a4a20; }
+
+  /* ── CANVAS AREA ── */
+  #canvases { display: flex; gap: 6px; padding: 0 10px; flex: 1; min-height: 0; }
+  .cv-wrap { flex: 1; border-radius: 0 0 6px 6px; overflow: hidden; position: relative; }
+  .cv-wrap-s { border: 1px solid var(--lbl-s); background: var(--canvas); }
+  .cv-wrap-a { border: 1px solid var(--lbl-a); background: var(--canvas); }
+  canvas { width: 100%; height: 100%; display: block; cursor: crosshair; touch-action: none; }
+
+  /* ── BOTTOM PANEL ── */
+  #bottom { display: flex; flex-direction: column; gap: 0; padding: 6px 10px 6px; flex-shrink: 0; background: var(--panel); margin: 4px 10px 6px; border-radius: 8px; }
+
+  /* ── CONTROLS ROW ── */
+  #controls { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; padding: 4px 0; }
+
+  .mode-group { display: flex; gap: 4px; }
+  .mode-btn { padding: 5px 10px; border-radius: 5px; border: 1.5px solid transparent; font-size: 12px; cursor: pointer; background: var(--btn); color: var(--txt); transition: all .15s; white-space: nowrap; }
+  .mode-btn.active-fire   { background: #3a1010; color: var(--n-fire);  border-color: var(--n-fire); }
+  .mode-btn.active-smoke  { background: #1e1040; color: var(--n-smoke); border-color: var(--n-smoke); }
+  .mode-btn.active-block  { background: #3a2a00; color: var(--n-block); border-color: var(--n-block); }
+
+  .action-btn { padding: 5px 10px; border-radius: 5px; border: none; font-size: 12px; cursor: pointer; background: var(--btn); color: var(--txt); transition: background .15s; white-space: nowrap; }
+  .action-btn:hover, .action-btn:active { background: var(--btn-h); }
+
+  .divider { width: 1px; height: 24px; background: var(--wall-b); flex-shrink: 0; }
+
+  /* ── STATS ROW ── */
+  #stats { display: flex; gap: 18px; padding: 0; border-top: none; flex-wrap: wrap; align-items:center; margin-left:auto; }
+  .stat { display: flex; align-items: center; gap: 6px; font-size: 14px; }
+  .stat-lbl { color: var(--muted); }
+  .stat-val { font-weight: 800; min-width: 44px; font-size: 18px; }
+  .stat-val.sta { color: var(--lbl-s); }
+  .stat-val.ada { color: var(--lbl-a); }
+  .stat-val.hi  { color: var(--hi); }
+  .stat-val.red { color: #ef4444; }
+
+  /* ── STATUS BAR ── */
+  #statusbar { display: none; }
+
+  /* ── HIDE STATIC TOGGLE ── */
+  #toggle-static { font-size: 11px; color: var(--muted); cursor: pointer; padding: 4px 8px; border-radius: 4px; background: var(--btn); border: none; }
+
+  /* ── INFO TOOLTIP on canvas ── */
+  #tooltip { position: fixed; background: #08081a; border: 1.5px solid var(--lbl-a); border-radius: 6px; padding: 8px 10px; font-family: 'Courier New', monospace; font-size: 11px; color: var(--txt); pointer-events: none; display: none; z-index: 100; max-width: 220px; line-height: 1.6; }
+  #tooltip.static { border-color: var(--lbl-s); }
+
+  /* ── CAPACITY PANEL (third field, only in evac mode) ── */
+  .hdr-c { background: #0a1a2a; }
+  .hdr-c .hdr-title { color: #38bdf8; }
+  .hdr-c .hdr-sub   { color: #1a3a50; }
+  .cv-wrap-c { border: 1px solid #38bdf8; background: var(--canvas); }
+  #hdr-c     { display: none; }
+  #cv-wrap-c { display: none; }
+  #cap-legend {
+    display: none; gap: 10px; padding: 3px 0 0;
+    border-top: 1px solid var(--wall-b); flex-wrap: wrap; align-items: center;
+  }
+  #cap-legend.visible { display: flex; }
+  .cap-sw { display:inline-block; width:24px; height:4px; border-radius:2px; vertical-align:middle; margin-right:2px; }
+
+  /* ── EVACUATION MODE TOGGLE ── */
+  #btn-evac-mode {
+    padding: 5px 12px; border-radius: 5px; border: 1.5px solid var(--muted);
+    font-size: 12px; cursor: pointer; background: var(--btn); color: var(--muted);
+    transition: all .2s; white-space: nowrap; font-weight: 600;
+  }
+  #btn-evac-mode.active {
+    background: #1a2a3a; color: #38bdf8; border-color: #38bdf8;
+  }
+
+  /* ── EVAC STATS ROW ── */
+  #stats-evac {
+    display: none; gap: 18px; padding: 0; border-top: none; flex-wrap: wrap; align-items:center; margin-left:auto;
+  }
+  #stats-evac.visible { display: flex !important; }
+  .stat-val.evac  { color: #38bdf8; }
+  .stat-val.warn  { color: #f59e0b; }
+  .stat-val.crit  { color: #ef4444; }
+
+  /* ── PERSON INPUT OVERLAY ── */
+  #person-overlay {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    pointer-events: none; overflow: hidden;
+  }
+  .person-input-wrap {
+    position: absolute; transform: translate(-50%, -160%);
+    pointer-events: all; display: flex; flex-direction: column; align-items: center; gap: 1px;
+  }
+  .person-input {
+    width: 44px; height: 26px; background: #0a1520; border: 1.5px solid #38bdf8;
+    color: #7dd3fc; font-size: 13px; font-weight: 700; text-align: center;
+    border-radius: 5px; outline: none; padding: 0 2px;
+    box-shadow: none;
+  }
+  .person-input:focus { border-color: #7dd3fc; background: #0d1e30; box-shadow: none; }
+  .person-lbl {
+    font-size: 9px; color: #38bdf8; opacity: 0.6;
+    font-family: 'Courier New', monospace; white-space: nowrap;
+  }
+
+
+  .person-input {
+    appearance: textfield;
+    -moz-appearance: textfield;
+    background-clip: padding-box;
+    box-shadow: none !important;
+    outline: none !important;
+  }
+  .person-input::-webkit-outer-spin-button,
+  .person-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  /* ── EXIT BADGES ── */
+  .exit-badge-wrap {
+    position: absolute; transform: translate(-50%, 0%);
+    pointer-events: none; display: flex; flex-direction: column; align-items: center; gap: 1px;
+  }
+  .exit-badge {
+    min-width: 44px; height: 22px; background: #0a1a10; border: 1.5px solid #22c55e;
+    color: #22c55e; font-size: 13px; font-weight: 700; text-align: center;
+    border-radius: 5px; padding: 0 6px; display: flex; align-items: center; justify-content: center;
+  }
+  .exit-badge.sta  { background: #0a1a10; border-color: var(--lbl-a); color: var(--lbl-a); }
+  .exit-badge.ada  { background: #0a1a10; border-color: var(--lbl-a); color: var(--lbl-a); }
+  .exit-badge.flow { background: #0a1a10; border-color: var(--lbl-a); color: var(--lbl-a); }
+  .exit-badge-lbl  { font-size: 9px; color: var(--muted); font-family: 'Courier New', monospace; }
+
+
+  #stats-risk {
+    display: flex; align-items: center; gap: 10px; margin-left: auto; flex-shrink: 0;
+  }
+  .risk-stat {
+    display: flex; flex-direction: column; align-items: flex-end; gap: 0px;
+  }
+  .risk-lbl {
+    font-size: 9px; color: var(--muted); text-align: right; line-height: 1.3;
+  }
+  .risk-sublbl {
+    font-size: 9px; font-weight: 700; text-align: right;
+  }
+  .sta-col  { color: var(--lbl-s); }
+  .ada-col  { color: var(--lbl-a); }
+  .flow-col { color: #38bdf8; }
+  .risk-val {
+    font-size: 28px; font-weight: 900; line-height: 1; letter-spacing: -1px;
+  }
+  .risk-val.sta  { color: var(--lbl-s); }
+  .risk-val.ada  { color: var(--lbl-a); }
+  .risk-val.flow { color: #38bdf8; }
+  .risk-dist {
+    font-size: 10px; font-weight: 600; color: var(--muted); text-align: right;
+  }
+  .risk-time {
+    font-size: 10px; font-weight: 700; color: var(--hi); text-align: right;
+  }
+  .risk-divider {
+    width: 1px; height: 52px; background: var(--wall-b); flex-shrink: 0;
+  }
+
+  @media (max-width: 600px) {
+    .hdr-sub { display: none; }
+    .mode-btn, .action-btn { font-size: 11px; padding: 4px 7px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <div class="hdr hdr-s" id="hdr-s">
+    <span class="hdr-title">Statisch</span>
+    <span class="hdr-sub">Vordefiniert</span>
+  </div>
+  <div class="hdr hdr-a">
+    <span class="hdr-title">Adaptiv Djikstra</span>
+    <span class="hdr-sub">Dijkstra + Lastverteilung</span>
+  </div>
+  <div class="hdr hdr-c" id="hdr-c">
+    <span class="hdr-title">Adaptiv mit Lastverteilung</span>
+    <span class="hdr-sub">Personenstromoptimiert</span>
+  </div>
+</div>
+
+<div id="canvases">
+  <div class="cv-wrap cv-wrap-s" id="cv-wrap-s">
+    <canvas id="canvas-s"></canvas>
+    <div id="person-overlay-s" class="person-overlay-hidden"></div>
+    <div id="exit-overlay-s"></div>
+  </div>
+  <div class="cv-wrap cv-wrap-a">
+    <canvas id="canvas-a"></canvas>
+    <div id="person-overlay-a" class="person-overlay-hidden"></div>
+    <div id="exit-overlay-a"></div>
+  </div>
+  <div class="cv-wrap cv-wrap-c" id="cv-wrap-c">
+    <canvas id="canvas-c"></canvas>
+    <div id="person-overlay-c" class="person-overlay-hidden"></div>
+    <div id="exit-overlay-c"></div>
+  </div>
+</div>
+
+<div id="bottom">
+  <div id="controls">
+    <div class="mode-group">
+      <button class="mode-btn active-fire" id="btn-fire"  onclick="setMode('fire')">🔥 Brand</button>
+      <button class="mode-btn"             id="btn-smoke" onclick="setMode('smoke')">🌫 Rauch</button>
+    </div>
+    <div class="divider"></div>
+    <button class="action-btn" onclick="reset()">↺ Reset</button>
+    
+    <div class="divider"></div>
+    <button id="btn-evac-mode" onclick="toggleEvacMode()">👥 Evakuierung</button>
+    <button id="toggle-static" onclick="toggleStatic()">◧ Statisch ausblenden</button>
+    <div id="stats-risk">
+      <div class="risk-stat">
+        <span class="risk-lbl">Durch Brand/Rauch</span>
+        <span class="risk-sublbl sta-col">Statisch</span>
+        <span class="risk-val sta" id="risk-s">–</span>
+        <span class="risk-dist" id="dist-s">– m</span>
+        <span class="risk-time" id="time-s">– min</span>
+      </div>
+      <div class="risk-divider"></div>
+      <div class="risk-stat">
+        <span class="risk-lbl">Durch Brand/Rauch</span>
+        <span class="risk-sublbl ada-col">Adaptiv</span>
+        <span class="risk-val ada" id="risk-a">–</span>
+        <span class="risk-dist" id="dist-a">– m</span>
+        <span class="risk-time" id="time-a">– min</span>
+      </div>
+      <div id="risk-flow-col" style="display:none;align-items:center;gap:10px;">
+        <div class="risk-divider"></div>
+        <div class="risk-stat">
+          <span class="risk-lbl">Durch Brand/Rauch</span>
+          <span class="risk-sublbl flow-col">Lastverteilung</span>
+          <span class="risk-val flow" id="risk-f">–</span>
+          <span class="risk-dist" id="dist-f">– m</span>
+          <span class="risk-time" id="time-f">– min</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div id="cap-legend">
+    <span style="font-size:11px;color:var(--muted)">Auslastung:</span>
+    <span style="font-size:11px"><span class="cap-sw" style="background:#22c55e"></span>&lt;50%</span>
+    <span style="font-size:11px"><span class="cap-sw" style="background:#84cc16"></span>50–75%</span>
+    <span style="font-size:11px"><span class="cap-sw" style="background:#f59e0b"></span>75–100%</span>
+    <span style="font-size:11px"><span class="cap-sw" style="background:#ef4444"></span>Überlastet</span>
+    <span style="font-size:11px;color:var(--muted)">│ Türen: 90cm=60P/min · Exit 120cm=80P/min · rechts: Lastverteilung aktiv</span>
+  </div>
+  <div id="statusbar">Bereit. Modus wählen und Knoten anklicken.</div>
+</div>
+
+<div id="tooltip"></div>
+
+<script>
+// ─────────────────────────────────────────────
+//  GRAPH DATA
+// ─────────────────────────────────────────────
+const NODES = {
+  11: [360, 30,  "Ausgang N", "exit"],
+  12: [660, 225, "Ausgang O", "exit"],
+  13: [200, 450, "Ausgang S", "exit"],
+   1: [200, 110, "Büro A",   "normal"],
+   2: [200, 225, "Büro B",   "normal"],
+   3: [200, 355, "Lager",    "normal"],
+   4: [360, 110, "Flur N",   "normal"],
+   5: [360, 225, "Zentrum",  "normal"],
+   6: [360, 355, "Flur S",   "normal"],
+   7: [510, 110, "Büro C",   "normal"],
+   8: [510, 225, "Konferenz","normal"],
+   9: [510, 355, "Kantine",  "normal"],
+  10: [360, 450, "Technik",  "normal"],
+};
+const EDGES = [
+  [1,2,3],[2,3,3],[4,5,3],[5,6,3],[7,8,3],[8,9,3],[6,10,3],
+  [1,4,4],[4,7,4],[2,5,3],[5,8,3],[3,6,4],[6,9,3],
+  [4,11,3],[8,12,3],[3,13,3],[10,13,4],
+];
+const STATIC_ROUTES = {
+   1:[1,4,11], 2:[2,5,4,11], 3:[3,13],   4:[4,11],
+   5:[5,4,11], 6:[6,5,4,11], 7:[7,4,11], 8:[8,12],
+   9:[9,6,5,4,11], 10:[10,6,5,4,11],
+};
+const INNER = Object.keys(NODES).map(Number).filter(n => NODES[n][3]==="normal");
+const EXITS  = Object.keys(NODES).map(Number).filter(n => NODES[n][3]==="exit");
+const VW=720, VH=480;
+const DANGER_W = {normal:0, smoke:15, fire:999, blocked:999};
+
+// ── DOOR / CORRIDOR CAPACITIES (persons/min) ──
+// EN 13637 / EN 179: 90cm inner doors ~60 P/min, 120cm exit doors ~80 P/min
+function edgeCap(a,b) {
+  const aExit = NODES[a][3]==="exit", bExit = NODES[b][3]==="exit";
+  if (aExit||bExit) return 80;  // 120cm exit door
+  return 60;                     // 90cm inner corridor door
+}
+
+// Load-based colour: green → yellow → orange → red
+function loadColor(load) {
+  if (load <= 0)    return null;          // unused edge
+  if (load < 0.5)   return "#22c55e";    // green  – under 50%
+  if (load < 0.75)  return "#84cc16";    // lime   – 50–75%
+  if (load < 1.0)   return "#f59e0b";    // amber  – 75–100%
+  return "#ef4444";                       // red    – overloaded
+}
+function loadGlow(load) {
+  if (load < 0.5)  return "#0a2a10";
+  if (load < 0.75) return "#1a2a00";
+  if (load < 1.0)  return "#2a1800";
+  return "#2a0000";
+}
+
+// ── EVAC STATE ──
+let evacMode = false;
+let personCounts = {}; // nodeId → count, default 10
+function getPersons(nid) { return personCounts[nid] !== undefined ? personCounts[nid] : 10; }
+const C = {
+  bg:"#14141f", canvas:"#0d0d1a", wall:"#22223a", wallB:"#33335a",
+  room:"#16162a", edge:"#2a2a4a",
+  pAda:"#22c55e", gAda:"#0a2a10", pSta:"#f97316", gSta:"#2a1000",
+  nNorm:"#3b82f6", nExit:"#22c55e", nFire:"#ef4444", nSmoke:"#a78bfa", nBlock:"#f59e0b",
+  txt:"#e2e8f0", muted:"#4a5568", hi:"#fbbf24", logBg:"#0a0a18",
+  lblS:"#f97316", lblA:"#22c55e",
+};
+
+// ─────────────────────────────────────────────
+//  STATE
+// ─────────────────────────────────────────────
+let nodeStates = {};
+let selected   = null;
+let currentMode = "fire";
+let showStatic  = true;
+
+// ─────────────────────────────────────────────
+//  ALGORITHMS
+// ─────────────────────────────────────────────
+function edgeKey(a,b){ return Math.min(a,b)+","+Math.max(a,b); }
+
+function buildAdj(states) {
+  const adj = {};
+  for (const n in NODES) adj[n] = [];
+  for (const [a,b,w] of EDGES) {
+    const da = DANGER_W[states[a]||"normal"] || 0;
+    const db = DANGER_W[states[b]||"normal"] || 0;
+    const wt = w + (da+db)/2;
+    adj[a].push([b,wt]); adj[b].push([a,wt]);
+  }
+  return adj;
+}
+
+function dijkstra(src, adj) {
+  const dist = {}, prev = {};
+  for (const n in NODES) { dist[n]=Infinity; prev[n]=null; }
+  dist[src] = 0;
+  const pq = [[0,src]]; // [dist, node]
+  while (pq.length) {
+    pq.sort((a,b)=>a[0]-b[0]);
+    const [d,u] = pq.shift();
+    if (d > dist[u]) continue;
+    for (const [v,w] of adj[u]) {
+      const nd = d+w;
+      if (nd < dist[v]) { dist[v]=nd; prev[v]=u; pq.push([nd,v]); }
+    }
+  }
+  return {dist,prev};
+}
+
+function pathDist(path) {
+  const em = {};
+  for (const [a,b,w] of EDGES) em[edgeKey(a,b)] = w;
+  let d=0;
+  for (let i=0;i<path.length-1;i++) d += em[edgeKey(path[i],path[i+1])]||5;
+  return Math.round(d*10)/10;
+}
+
+function routeAffected(nid, states) {
+  const route = STATIC_ROUTES[nid]||[];
+  // Skip index 0 (the room itself) — a fire/smoke IN the room doesn't block the exit route.
+  // Only transit nodes and the exit being blocked/on fire forces a reroute.
+  return route.slice(1).some(n => ["fire","blocked"].includes(states[n]||"normal"));
+}
+
+function computeAdaptive(states) {
+  if (!Object.keys(states).length) {
+    const res = {};
+    for (const nid of INNER) {
+      const r = STATIC_ROUTES[nid];
+      if (r) res[nid] = {exit:r[r.length-1], path:[...r], dist:pathDist(r), mode:"static-default"};
+    }
+    return res;
+  }
+  const adj = buildAdj(states);
+  const edMap = {}, epMap = {};
+  for (const eid of EXITS) { const r=dijkstra(eid,adj); edMap[eid]=r.dist; epMap[eid]=r.prev; }
+
+  const res = {};
+  for (const nid of INNER) {
+    if (!routeAffected(nid, states)) {
+      const r=STATIC_ROUTES[nid];
+      if (r) res[nid]={exit:r[r.length-1],path:[...r],dist:pathDist(r), mode:"static-safe"};
+      continue;
+    }
+    let bestE=null, bestD=Infinity;
+    for (const eid of EXITS) { if (edMap[eid][nid]<bestD){bestD=edMap[eid][nid];bestE=eid;} }
+    if (!bestE||bestD>=9000){res[nid]=null;continue;}
+    const path=[nid]; let cur=nid;
+    while(cur!=bestE){const p=epMap[bestE][cur];if(!p)break;path.push(p);cur=p;}
+    res[nid]={exit:bestE,path,dist:Math.round(bestD*10)/10, mode:"shortest-safe"};
+  }
+  return res;
+}
+
+function shortestPathToExit(nid, eid, adj) {
+  const r = dijkstra(eid, adj);
+  const d = r.dist[nid];
+  if (d >= 9000 || !isFinite(d)) return null;
+  const path=[nid]; let cur=nid;
+  while (cur != eid) {
+    const p = r.prev[cur];
+    if (!p) return null;
+    path.push(p); cur=p;
+  }
+  return {exit:eid, path, dist:Math.round(d*10)/10};
+}
+
+function routeLoadPenalty(path, persons, flow) {
+  // Bewertet, wie stark ein zusätzlicher Raum die vorhandenen Personenströme belastet.
+  // Priorität: 1) Überlast vermeiden, 2) Spitzenlast senken, 3) Weglänge klein halten.
+  let sumPressure = 0;
+  let maxLoad = 0;
+  let overloaded = 0;
+  for (let i=0;i<path.length-1;i++) {
+    const a=path[i], b=path[i+1], k=edgeKey(a,b);
+    const cap=edgeCap(a,b);
+    const after=((flow[k]||0)+persons)/cap;
+    maxLoad = Math.max(maxLoad, after);
+    sumPressure += Math.pow(after, 3.0) * cap;
+    if (after > 1) overloaded += Math.pow(after-1, 2.6) * cap * 18;
+  }
+  return {sumPressure, maxLoad, overloaded};
+}
+
+function buildFlowForAssignment(assignment, skipNode=null) {
+  const flow = {};
+  const exitFlow = {};
+  for (const other of INNER) {
+    if (other===skipNode || !assignment[other]) continue;
+    const r=assignment[other];
+    const p=getPersons(other);
+    exitFlow[r.exit] = (exitFlow[r.exit]||0) + p;
+    for (let i=0;i<r.path.length-1;i++) {
+      const k=edgeKey(r.path[i],r.path[i+1]);
+      flow[k]=(flow[k]||0)+p;
+    }
+  }
+  return {flow, exitFlow};
+}
+
+function routeDistanceWithStates(path, states) {
+  const em = {};
+  for (const [a,b,w] of EDGES) em[edgeKey(a,b)] = w;
+  let d = 0;
+  for (let i=0;i<path.length-1;i++) {
+    const a=path[i], b=path[i+1];
+    const da = DANGER_W[states[a]||"normal"] || 0;
+    const db = DANGER_W[states[b]||"normal"] || 0;
+    d += (em[edgeKey(a,b)] || 5) + (da+db)/2;
+  }
+  return d;
+}
+
+function policyFromRoutes(routes) {
+  const succ = {};
+  for (const nid of INNER) {
+    const r = routes[nid];
+    if (r && r.path && r.path.length > 1) succ[nid] = r.path[1];
+  }
+  return succ;
+}
+
+function routesFromPolicy(succ, states) {
+  const res = {};
+  for (const src of INNER) {
+    const path = [src];
+    const seen = new Set([src]);
+    let cur = src;
+    let ok = true;
+    while (NODES[cur][3] !== "exit") {
+      const nx = succ[cur];
+      if (!nx || seen.has(nx)) { ok = false; break; }
+      path.push(nx);
+      seen.add(nx);
+      cur = nx;
+      if (path.length > Object.keys(NODES).length + 2) { ok = false; break; }
+    }
+    if (!ok) { res[src] = null; continue; }
+    res[src] = {
+      exit: cur,
+      path,
+      dist: Math.round(routeDistanceWithStates(path, states)*10)/10,
+      mode: "flow-policy"
+    };
+  }
+  return res;
+}
+
+function scorePolicy(succ, states) {
+  const routes = routesFromPolicy(succ, states);
+  const evac = computeEvacTimes(routes, states);
+  const totalPersons = INNER.reduce((s,n)=>s+getPersons(n),0) || 1;
+  const exitFlow = {};
+  let invalid = 0;
+  let weightedDist = 0;
+
+  let hazardPersons = 0;
+  let smokePersons = 0;
+  let hazardPenalty = 0;
+
+  for (const nid of INNER) {
+    const r = routes[nid];
+    const p = getPersons(nid);
+    if (!r) { invalid += p || 1; continue; }
+    exitFlow[r.exit] = (exitFlow[r.exit]||0) + p;
+    weightedDist += r.dist * Math.max(1,p);
+
+    // Harte Priorität: Sicherheit vor Kapazitätsoptimierung.
+    // Ein Engpass ist akzeptabler als Personen durch Brand/blockierte Räume zu führen.
+    // Der Startraum wird nicht gezählt, weil Personen aus einem Ereignisraum heraus müssen.
+    for (let i=1;i<r.path.length;i++) {
+      const st = states[r.path[i]] || "normal";
+      if (st === "fire" || st === "blocked") {
+        hazardPersons += p;
+        hazardPenalty += p * 250000;
+      } else if (st === "smoke") {
+        smokePersons += p;
+        hazardPenalty += p * 2500;
+      }
+    }
+  }
+
+  let loadPressure = 0;
+  let overloadPressure = 0;
+  let maxLoad = 0;
+  for (const k in evac.flow) {
+    const [a,b] = k.split(",").map(Number);
+    const cap = edgeCap(a,b);
+    const load = (evac.flow[k]||0) / cap;
+    maxLoad = Math.max(maxLoad, load);
+    loadPressure += Math.pow(load, 3.0) * cap;
+    if (load > 1) overloadPressure += Math.pow(load-1, 3.4) * cap * 45;
+  }
+
+  const target = totalPersons / Math.max(1, EXITS.length);
+  let exitBalance = 0;
+  for (const eid of EXITS) exitBalance += Math.pow(((exitFlow[eid]||0)-target)/target, 2) * 80;
+
+  return invalid * 1000000 + hazardPenalty + overloadPressure * 300 + Math.pow(maxLoad,3.0)*350 + loadPressure * 4 + exitBalance + weightedDist * 0.025;
+}
+
+function hasEvacuationEvent(states) {
+  return Object.values(states || {}).some(st => st === "fire" || st === "smoke" || st === "blocked");
+}
+
+function computeAdaptiveFlowAware(states) {
+  // Exakt wie Version 18, aber mit Startbedingung:
+  // Ohne Brand/Rauch/Blockade bleibt das Kapazitätssystem unverändert auf der
+  // statisch definierten Beschilderung. Sobald ein Ereignis gesetzt ist, läuft
+  // wieder die globale, personenstrombasierte Policy-Optimierung aus v18.
+  if (!hasEvacuationEvent(states)) {
+    return computeStatic(states || {});
+  }
+
+  const adj = buildAdj(states);
+
+  // Rechtes Feld: echte Beschilderungs-Policy.
+  // Jede normale Position bekommt genau EINEN Nachfolger. Dadurch gibt es an
+  // einem Raum/Knoten nie zwei widersprüchliche Pfeile. Anders als die lokale
+  // Suche der Vorversion prüfen wir hier wegen des kleinen Graphen alle
+  // zulässigen Policy-Kombinationen vollständig. So bleiben lokale Optima wie
+  // „Büro C wird unnötig über Ausgang N gezogen“ aus.
+  const candidates = {};
+  for (const nid of INNER) {
+    candidates[nid] = [];
+    for (const [v,w] of adj[nid]) {
+      const nv = +v;
+      // Keine Beschilderung IN einen Brand- oder blockierten Ereignisort.
+      // Personen aus einem betroffenen Raum dürfen natürlich herausgeführt werden,
+      // aber andere Räume sollen nicht durch diesen Raum geleitet werden.
+      const targetState = states[nv] || "normal";
+      if ((targetState === "fire" || targetState === "blocked") && NODES[nv][3] !== "exit") continue;
+      if (targetState === "blocked") continue;
+      candidates[nid].push(nv);
+    }
+    // Stabilere Reihenfolge: zuerst Richtungen, die geometrisch näher zu einem Ausgang führen.
+    candidates[nid].sort((a,b)=>minExitDistFromNode(a, adj)-minExitDistFromNode(b, adj));
+  }
+
+  let bestSucc = null;
+  let bestScore = Infinity;
+  const succ = {};
+  const nodes = [...INNER].sort((a,b)=>candidates[a].length-candidates[b].length);
+
+  function rec(i) {
+    if (i >= nodes.length) {
+      const sc = scorePolicy(succ, states);
+      if (sc < bestScore) {
+        bestScore = sc;
+        bestSucc = {...succ};
+      }
+      return;
+    }
+    const nid = nodes[i];
+    for (const nv of candidates[nid]) {
+      succ[nid] = nv;
+      rec(i+1);
+    }
+    delete succ[nid];
+  }
+  rec(0);
+
+  const base = computeAdaptive(states);
+  if (!bestSucc) return base;
+
+  const routes = routesFromPolicy(bestSucc, states);
+  for (const nid of INNER) {
+    if (!routes[nid] && base[nid]) routes[nid] = {...base[nid], mode:"fallback-shortest"};
+  }
+  return routes;
+}
+
+function minExitDistFromNode(nid, adj) {
+  let best = Infinity;
+  for (const eid of EXITS) {
+    const r = shortestPathToExit(nid, eid, adj);
+    if (r && r.dist < best) best = r.dist;
+  }
+  return best;
+}
+
+function computeStatic(states) {
+  const em = {};
+  for (const [a,b,w] of EDGES) em[edgeKey(a,b)]=w;
+  const res={};
+  for (const nid in STATIC_ROUTES) {
+    const route=STATIC_ROUTES[nid];
+    let dist=0;
+    for(let i=0;i<route.length-1;i++) dist+=em[edgeKey(route[i],route[i+1])]||5;
+    const blocked=route.filter(n=>["fire","blocked"].includes(states[n]||"normal"));
+    res[nid]={exit:route[route.length-1],path:[...route],dist:Math.round(dist*10)/10,blocked};
+  }
+  return res;
+}
+
+function pathEdgeSet(paths, sel, showAll) {
+  const out={};
+  const targets = (sel&&sel in paths&&paths[sel]) ? [sel] : (showAll?Object.keys(paths):[]);
+  for (const nid of targets) {
+    const r=paths[nid]; if(!r)continue;
+    for(let i=0;i<r.path.length-1;i++){
+      const a=r.path[i],b=r.path[i+1];
+      out[edgeKey(a,b)]=[a,b];
+    }
+  }
+  return out;
+}
+
+// ─────────────────────────────────────────────
+//  EVACUATION TIME SIMULATION
+//  Packet-based, 1-second time steps.
+//  Each packet carries persons + remaining path.
+//  Edge capacity is shared across all packets
+//  using the same directed edge per step.
+// ─────────────────────────────────────────────
+function simulateEvacTime(paths) {
+  const WALK_SPEED = 1.2; // m/s
+  const DT = 1 / 60;     // 1 second in minutes
+  const MIN_PERSONS = 0.01; // ignore floating-point dust
+
+  const em = {};
+  for (const [a, b, w] of EDGES) em[edgeKey(a, b)] = w;
+
+  let packets = [];
+  for (const nid of INNER) {
+    const r = paths[nid];
+    if (!r || !r.path || r.path.length < 2) continue;
+    const p = getPersons(nid);
+    if (p < MIN_PERSONS) continue;
+    packets.push({ persons: p, path: [...r.path], stepIdx: 0, readyAt: 0 });
+  }
+
+  const totalPersons = packets.reduce((s, p) => s + p.persons, 0);
+  if (!totalPersons) return 0;
+
+  const usedCap = {};
+  let t = 0, evacuated = 0, step = 0;
+  const MAX_STEPS = 60 * 60; // 1 hour cap
+
+  while (evacuated < totalPersons - MIN_PERSONS && step < MAX_STEPS) {
+    t += DT;
+    step++;
+
+    // Reset per-step edge capacity usage
+    for (const k in usedCap) usedCap[k] = 0;
+
+    const nextPackets = [];
+
+    for (const pkt of packets) {
+      // Still travelling – not ready yet
+      if (pkt.readyAt > t + DT * 0.01) {
+        nextPackets.push(pkt);
+        continue;
+      }
+
+      const from = pkt.path[pkt.stepIdx];
+      const to   = pkt.path[pkt.stepIdx + 1];
+
+      // No next step → already at destination (shouldn't happen, but safe)
+      if (to === undefined) {
+        evacuated += pkt.persons;
+        continue;
+      }
+
+      const isExit = NODES[to][3] === "exit";
+      const capPerStep = edgeCap(from, to) * DT;
+      const dirKey = from + ">" + to;
+      const alreadyUsed = usedCap[dirKey] || 0;
+      const available = Math.max(0, capPerStep - alreadyUsed);
+
+      // No capacity this step – wait
+      if (available < MIN_PERSONS) {
+        nextPackets.push(pkt);
+        continue;
+      }
+
+      const moving = Math.min(pkt.persons, available);
+      usedCap[dirKey] = alreadyUsed + moving;
+
+      const dist = em[edgeKey(from, to)] || 5;
+      const travelTime = dist / WALK_SPEED / 60;
+
+      // Remainder stays queued at current node
+      const remainder = pkt.persons - moving;
+      if (remainder > MIN_PERSONS) {
+        nextPackets.push({ ...pkt, persons: remainder });
+      }
+
+      // Moving portion travels to next node
+      nextPackets.push({
+        path: pkt.path,
+        stepIdx: pkt.stepIdx + 1,
+        persons: moving,
+        readyAt: t + travelTime,
+        _exit: isExit
+      });
+    }
+
+    // Collect arrived packets
+    packets = [];
+    for (const pkt of nextPackets) {
+      if (pkt._exit && pkt.readyAt <= t + DT * 0.01) {
+        evacuated += pkt.persons;
+      } else {
+        packets.push(pkt);
+      }
+    }
+  }
+
+  return Math.round(t * 100) / 100;
+}
+
+
+// ─────────────────────────────────────────────
+const cvS  = document.getElementById("canvas-s");
+const cvA  = document.getElementById("canvas-a");
+const cvC  = document.getElementById("canvas-c");
+const ctxS = cvS.getContext("2d");
+const ctxA = cvA.getContext("2d");
+const ctxC = cvC.getContext("2d");
+
+function resizeCanvas(cv, wrap) {
+  if (!wrap || !wrap.clientWidth || !wrap.clientHeight) return;
+  cv.width  = wrap.clientWidth  * devicePixelRatio;
+  cv.height = wrap.clientHeight * devicePixelRatio;
+  cv.style.width  = wrap.clientWidth  + "px";
+  cv.style.height = wrap.clientHeight + "px";
+}
+
+function resize() {
+  resizeCanvas(cvS, document.getElementById("cv-wrap-s"));
+  resizeCanvas(cvA, document.querySelector(".cv-wrap-a"));
+  if (evacMode) resizeCanvas(cvC, document.getElementById("cv-wrap-c"));
+}
+
+function scale(ctx) {
+  const W=ctx.canvas.width/devicePixelRatio, H=ctx.canvas.height/devicePixelRatio;
+  const m=14;
+  return {sx:(W-2*m)/VW, sy:(H-2*m)/VH, px:m, py:m};
+}
+
+function nodePos(nid, s) {
+  return [NODES[nid][0]*s.sx+s.px, NODES[nid][1]*s.sy+s.py];
+}
+
+function nodeR(nid) { return NODES[nid][3]==="exit" ? 20 : 16; }
+
+function nodeColor(nid, states) {
+  if (NODES[nid][3]==="exit") {
+    return (states[nid]==="blocked") ? C.nBlock : C.nExit;
+  }
+  return {normal:C.nNorm,fire:C.nFire,smoke:C.nSmoke,blocked:C.nBlock}[states[nid]||"normal"];
+}
+
+const ROOMS = [
+  [1, 130,65,280,175,"Büro A"],
+  [2, 130,180,280,300,"Büro B"],
+  [3, 130,305,280,435,"Lager"],
+  [4, 295,65,430,175,"Flur N"],
+  [5, 295,180,430,300,"Zentrum"],
+  [6, 295,305,430,405,"Flur S"],
+  [7, 430,65,600,175,"Büro C"],
+  [8, 430,180,600,300,"Konferenz"],
+  [9, 430,305,600,435,"Kantine"],
+  [10,295,410,430,465,"Technik"],
+];
+
+// Person badge removed – only editable input field remains
+function drawPersonBadge(ctx, x, y, r, nid, states) {
+  return;
+}
+
+function drawScene(ctx, states, pedges, sel, isStatic, sblocked, isEvac, evacData, bottlenecks, useLoadColor, exitFlow) {
+  ctx.save();
+  ctx.scale(devicePixelRatio, devicePixelRatio);
+  const W=ctx.canvas.width/devicePixelRatio, H=ctx.canvas.height/devicePixelRatio;
+  ctx.clearRect(0,0,W,H);
+  const s = scale(ctx);
+
+  // Build bottleneck key set for fast lookup
+  const bnKeys = new Set((bottlenecks||[]).map(b=>b.key));
+
+  // Building shell
+  const bx1=60*s.sx+s.px, by1=60*s.sy+s.py, bx2=660*s.sx+s.px, by2=440*s.sy+s.py;
+  ctx.fillStyle=C.wall; ctx.strokeStyle=C.wallB; ctx.lineWidth=2;
+  ctx.fillRect(bx1,by1,bx2-bx1,by2-by1);
+  ctx.strokeRect(bx1,by1,bx2-bx1,by2-by1);
+
+  // Rooms
+  for (const [nid,rx1,ry1,rx2,ry2,lbl] of ROOMS) {
+    const st = states[nid]||"normal";
+    const fill={fire:"#2a1010",smoke:"#1a1530",blocked:"#2a2000",normal:C.room}[st];
+    ctx.fillStyle=fill;
+    ctx.strokeStyle=C.wallB; ctx.lineWidth=1;
+    ctx.setLineDash([3,4]);
+    const x1=rx1*s.sx+s.px, y1=ry1*s.sy+s.py, x2=rx2*s.sx+s.px, y2=ry2*s.sy+s.py;
+    ctx.fillRect(x1,y1,x2-x1,y2-y1);
+    ctx.strokeRect(x1,y1,x2-x1,y2-y1);
+    ctx.setLineDash([]);
+    ctx.fillStyle="#1e1e40"; ctx.font="bold 10px Helvetica";
+    ctx.textAlign="center"; ctx.textBaseline="top";
+    ctx.fillText(lbl,(rx1+rx2)/2*s.sx+s.px,(ry1+8)*s.sy+s.py);
+  }
+
+  // Exit markers
+  const exits3 = [
+    [310*s.sx+s.px,by1-3,410*s.sx+s.px,by1+6],
+    [bx2-6,185*s.sy+s.py,bx2+2,265*s.sy+s.py],
+    [130*s.sx+s.px,by2-6,280*s.sx+s.px,by2+2],
+  ];
+  for (const [x1,y1,x2,y2] of exits3) {
+    ctx.fillStyle="#22c55e"; ctx.strokeStyle="#15803d"; ctx.lineWidth=1;
+    ctx.fillRect(x1,y1,x2-x1,y2-y1); ctx.strokeRect(x1,y1,x2-x1,y2-y1);
+  }
+
+  // Edges
+  for (const [a,b] of EDGES) {
+    const k=edgeKey(a,b), onPath=k in pedges;
+    const [ax,ay]=nodePos(a,s), [bx,by]=nodePos(b,s);
+    const danger=(["fire","blocked"].includes(states[a]||"normal")||["fire","blocked"].includes(states[b]||"normal"));
+    const isBottleneck = bnKeys.has(k);
+
+    if (isEvac) {
+      // In evac mode: routes with arrows, colored by capacity load
+      if (onPath) {
+        if (isStatic && danger) {
+          // Blocked/fire route stays red dashed
+          ctx.strokeStyle="#5a1010"; ctx.lineWidth=7; ctx.setLineDash([5,4]);
+          ctx.beginPath(); ctx.moveTo(ax,ay); ctx.lineTo(bx,by); ctx.stroke();
+          ctx.strokeStyle="#ef4444"; ctx.lineWidth=2.5;
+          ctx.beginPath(); ctx.moveTo(ax,ay); ctx.lineTo(bx,by); ctx.stroke();
+          ctx.setLineDash([]);
+        } else {
+          const flow = (evacData&&evacData.flow) ? (evacData.flow[k]||0) : 0;
+          const cap  = edgeCap(a,b);
+          const load = cap>0 ? flow/cap : 0;
+          const pc = useLoadColor
+            ? (loadColor(load) || (isStatic?C.pSta:C.pAda))
+            : (isStatic?C.pSta:C.pAda);
+          const gc = useLoadColor ? loadGlow(load) : (isStatic?C.gSta:C.gAda);
+          ctx.strokeStyle=gc; ctx.lineWidth=9; ctx.setLineDash([]);
+          ctx.beginPath(); ctx.moveTo(ax,ay); ctx.lineTo(bx,by); ctx.stroke();
+          if (useLoadColor && load>=1.0) ctx.setLineDash([6,3]);
+          ctx.strokeStyle=pc; ctx.lineWidth=4;
+          ctx.beginPath(); ctx.moveTo(ax,ay); ctx.lineTo(bx,by); ctx.stroke();
+          ctx.setLineDash([]);
+          const [fa,fb]=pedges[k];
+          const [fax,fay]=nodePos(fa,s),[fbx,fby]=nodePos(fb,s);
+          drawArrow(ctx,fax,fay,fbx,fby,pc);
+        }
+      } else {
+        ctx.strokeStyle=C.edge; ctx.lineWidth=1.4; ctx.setLineDash([]);
+        ctx.beginPath(); ctx.moveTo(ax,ay); ctx.lineTo(bx,by); ctx.stroke();
+      }
+    } else if (onPath) {
+      if (isStatic && danger) {
+        ctx.strokeStyle="#5a1010"; ctx.lineWidth=7; ctx.setLineDash([5,4]);
+        ctx.beginPath(); ctx.moveTo(ax,ay); ctx.lineTo(bx,by); ctx.stroke();
+        ctx.strokeStyle="#ef4444"; ctx.lineWidth=2.5;
+        ctx.beginPath(); ctx.moveTo(ax,ay); ctx.lineTo(bx,by); ctx.stroke();
+        ctx.setLineDash([]);
+      } else {
+        const pc=isStatic?C.pSta:C.pAda, gc=isStatic?C.gSta:C.gAda;
+        ctx.strokeStyle=gc; ctx.lineWidth=9; ctx.setLineDash([]);
+        ctx.beginPath(); ctx.moveTo(ax,ay); ctx.lineTo(bx,by); ctx.stroke();
+        ctx.strokeStyle=pc; ctx.lineWidth=4;
+        ctx.beginPath(); ctx.moveTo(ax,ay); ctx.lineTo(bx,by); ctx.stroke();
+        // Arrow
+        const [fa,fb]=pedges[k];
+        const [fax,fay]=nodePos(fa,s),[fbx,fby]=nodePos(fb,s);
+        drawArrow(ctx,fax,fay,fbx,fby,pc);
+      }
+    } else {
+      ctx.strokeStyle=C.edge; ctx.lineWidth=1.4; ctx.setLineDash([]);
+      ctx.beginPath(); ctx.moveTo(ax,ay); ctx.lineTo(bx,by); ctx.stroke();
+    }
+  }
+
+  // Nodes
+  for (const nidStr in NODES) {
+    const nid=+nidStr;
+    const [x,y]=nodePos(nid,s), r=nodeR(nid);
+    const col=nodeColor(nid,states);
+    const isExit=NODES[nid][3]==="exit", isSel=nid===sel;
+
+    // Rings
+    const rings = (isExit||isSel)?3:0;
+    ctx.strokeStyle=col; ctx.setLineDash([]);
+    for(let i=rings;i>0;i--){
+      ctx.lineWidth=0.6; ctx.globalAlpha=0.4;
+      ctx.beginPath(); ctx.arc(x,y,r+i*4,0,Math.PI*2); ctx.stroke();
+    }
+    ctx.globalAlpha=1;
+
+    if (sblocked && sblocked.has(nid)) {
+      ctx.strokeStyle="#ef4444"; ctx.lineWidth=2.5;
+      ctx.beginPath(); ctx.arc(x,y,r+3,0,Math.PI*2); ctx.stroke();
+    }
+
+    ctx.fillStyle=col;
+    ctx.strokeStyle=isSel?"#fff":(isExit&&(states[nid]||"normal")!=="blocked"?"#15803d":col);
+    ctx.lineWidth=isSel?3:2;
+    ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill(); ctx.stroke();
+
+    // Icon/label
+    const st=states[nid]||"normal";
+    ctx.textAlign="center"; ctx.textBaseline="middle";
+    if (st==="blocked") {
+      ctx.font=`${Math.round(r*1.2)}px serif`; ctx.fillText("🚧",x,y);
+    } else if (isExit) {
+      ctx.font="bold 8px Helvetica"; ctx.fillStyle="#fff"; ctx.fillText("EXIT",x,y);
+    } else if (st==="fire") {
+      ctx.font=`${Math.round(r*1.2)}px serif`; ctx.fillText("🔥",x,y);
+    } else if (st==="smoke") {
+      ctx.font=`${Math.round(r*1.2)}px serif`; ctx.fillText("🌫",x,y);
+    } else {
+      ctx.font="bold 9px Helvetica"; ctx.fillStyle="#fff"; ctx.fillText(String(nid),x,y);
+    }
+
+    ctx.font="8px Helvetica"; ctx.fillStyle=C.muted;
+    ctx.textBaseline="top"; ctx.fillText(NODES[nid][2],x,y+r+5);
+
+    if (isEvac && !isExit) drawPersonBadge(ctx, x, y, r, nid, states);
+  }
+
+  ctx.restore();
+}
+
+function drawArrow(ctx,ax,ay,bx,by,col) {
+  const mx=(ax+bx)/2, my=(ay+by)/2;
+  const dx=bx-ax, dy=by-ay, ln=Math.hypot(dx,dy);
+  if(ln<10) return;
+  const ux=dx/ln, uy=dy/ln, s=11;
+  ctx.save();
+  ctx.strokeStyle=col; ctx.lineWidth=3; ctx.setLineDash([]);
+  ctx.beginPath(); ctx.moveTo(mx-ux*s,my-uy*s); ctx.lineTo(mx+ux*s,my+uy*s);
+  // arrowhead
+  const hx=mx+ux*s, hy=my+uy*s, hw=6, hl=10;
+  const px=-uy, py=ux;
+  ctx.moveTo(hx,hy);
+  ctx.lineTo(hx-ux*hl+px*hw, hy-uy*hl+py*hw);
+  ctx.moveTo(hx,hy);
+  ctx.lineTo(hx-ux*hl-px*hw, hy-uy*hl-py*hw);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawInfobox(ctx, nid, result, states, isStatic, sblocked) {
+  if (!nid || NODES[nid][3]==="exit") return;
+  const s=scale(ctx);
+  ctx.save(); ctx.scale(devicePixelRatio,devicePixelRatio);
+  const st=states[nid]||"normal";
+  const lines=[`Knoten ${nid}: ${NODES[nid][2]}`, `Status: ${st.toUpperCase()}`];
+  if (result) {
+    lines.push(`Ziel: ${NODES[result.exit][2]}  (${result.dist} m)`);
+    lines.push("Pfad: "+result.path.join(" → "));
+    if (isStatic && result.blocked && result.blocked.length) {
+      lines.push("BLOCKIERT: "+result.blocked.map(b=>NODES[b][2]).join(", "));
+      lines.push("Route NICHT angepasst!");
+    }
+  } else {
+    lines.push("Kein Weg erreichbar!");
+  }
+  const lh=16, pad=8, bw=270, bh=lines.length*lh+pad*2;
+  const bc=isStatic?"#f97316":"#22c55e";
+  ctx.fillStyle="#08081a"; ctx.strokeStyle=bc; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.roundRect(7,7,bw,bh,4); ctx.fill(); ctx.stroke();
+  ctx.font="10px 'Courier New',monospace"; ctx.textBaseline="top"; ctx.textAlign="left";
+  for(let i=0;i<lines.length;i++){
+    const warn=lines[i].includes("BLOCKIERT")||lines[i].includes("NICHT")||lines[i].includes("Kein");
+    ctx.fillStyle=warn?"#ef4444":(i===0?"#fbbf24":"#e2e8f0");
+    ctx.fillText(lines[i],15,7+pad+i*lh);
+  }
+  ctx.restore();
+}
+
+// ─────────────────────────────────────────────
+//  EVACUATION TIME MODEL
+// ─────────────────────────────────────────────
+// Simplified model:
+//   - Each edge has a capacity C (P/min)
+//   - Travel time on edge = base_dist / 60 m/s walking + persons_using_edge / C
+//   - Bottleneck = edges where total flow > capacity
+function computeEvacTimes(paths, states) {
+  // 1. Tally flow on each edge: sum of persons routed through it
+  const edgeFlow = {}; // edgeKey → persons/min demand
+  for (const nid of INNER) {
+    const r = paths[nid];
+    if (!r) continue;
+    const p = getPersons(nid);
+    for (let i=0;i<r.path.length-1;i++) {
+      const k = edgeKey(r.path[i],r.path[i+1]);
+      edgeFlow[k] = (edgeFlow[k]||0) + p;
+    }
+  }
+
+  // 2. For each room: evacuation time = max bottleneck time along path
+  const result = {};
+  for (const nid of INNER) {
+    const r = paths[nid];
+    if (!r) { result[nid] = null; continue; }
+    const p = getPersons(nid);
+    let maxTime = 0;
+    for (let i=0;i<r.path.length-1;i++) {
+      const a=r.path[i],b=r.path[i+1];
+      const k = edgeKey(a,b);
+      const cap = edgeCap(a,b);
+      const flow = edgeFlow[k]||0;
+      // Time = persons at this room / effective capacity at this edge
+      // If flow > cap, time scales proportionally (queuing)
+      const effective = Math.min(cap, cap * cap / Math.max(flow, cap));
+      const tMin = p / effective; // minutes
+      if (tMin > maxTime) maxTime = tMin;
+    }
+    result[nid] = { timeMin: Math.round(maxTime*100)/100, path: r.path, exit: r.exit };
+  }
+  return { times: result, flow: edgeFlow };
+}
+
+function getBottlenecks(edgeFlow) {
+  const bn = [];
+  for (const k in edgeFlow) {
+    const [a,b] = k.split(",").map(Number);
+    const cap = edgeCap(a,b);
+    if (edgeFlow[k] > cap) bn.push({key:k, a, b, flow:edgeFlow[k], cap});
+  }
+  return bn;
+}
+
+// ─────────────────────────────────────────────
+//  PERSON INPUT OVERLAY
+// ─────────────────────────────────────────────
+function buildPersonOverlay(cvEl, overlayEl, ctxEl) {
+  overlayEl.innerHTML = "";
+  overlayEl.style.position = "absolute";
+  overlayEl.style.top = "0"; overlayEl.style.left = "0";
+  overlayEl.style.width = "100%"; overlayEl.style.height = "100%";
+  overlayEl.style.pointerEvents = "none";
+
+  const s = scale(ctxEl);
+  for (const nidStr of INNER.map(String)) {
+    const nid = +nidStr;
+    const [x,y] = nodePos(nid, s);
+    // Convert from virtual coords to CSS px
+    const cx = (x / (cvEl.width / devicePixelRatio)) * 100;
+    const cy = (y / (cvEl.height / devicePixelRatio)) * 100;
+
+    const wrap = document.createElement("div");
+    wrap.className = "person-input-wrap";
+    wrap.style.left = cx+"%";
+    wrap.style.top  = cy+"%";
+    wrap.style.pointerEvents = "all";
+
+    const inp = document.createElement("input");
+    inp.type = "number"; inp.min = "0"; inp.max = "999";
+    inp.className = "person-input";
+    inp.value = getPersons(nid);
+    inp.dataset.nid = nid;
+    inp.addEventListener("change", e => {
+      const v = parseInt(e.target.value)||0;
+      personCounts[nid] = Math.max(0, Math.min(999, v));
+      redraw();
+      showPersonOverlays();
+    });
+    inp.addEventListener("click", e => e.stopPropagation());
+
+    wrap.appendChild(inp);
+    overlayEl.appendChild(wrap);
+  }
+}
+
+function showPersonOverlays() {
+  const ovS = document.getElementById("person-overlay-s");
+  const ovA = document.getElementById("person-overlay-a");
+  const ovC = document.getElementById("person-overlay-c");
+  if (ovS) buildPersonOverlay(cvS, ovS, ctxS);
+  if (ovA) buildPersonOverlay(cvA, ovA, ctxA);
+  if (ovC && evacMode) buildPersonOverlay(cvC, ovC, ctxC);
+}
+
+function buildExitOverlay(cvEl, overlayEl, ctxEl, exitFlow, badgeClass) {
+  overlayEl.innerHTML = "";
+  overlayEl.style.position = "absolute";
+  overlayEl.style.top = "0"; overlayEl.style.left = "0";
+  overlayEl.style.width = "100%"; overlayEl.style.height = "100%";
+  overlayEl.style.pointerEvents = "none";
+
+  const s = scale(ctxEl);
+  const W = cvEl.width / devicePixelRatio;
+  const H = cvEl.height / devicePixelRatio;
+
+  for (const nid of EXITS) {
+    const [x, y] = nodePos(nid, s);
+    const r = 20;
+    // Place badge above the node so it never clips at canvas edges
+    const badgeY = y - r - 28;
+    const cx = (x / W) * 100;
+    const cy = (badgeY / H) * 100;
+
+    const wrap = document.createElement("div");
+    wrap.className = "exit-badge-wrap";
+    wrap.style.left = cx + "%";
+    wrap.style.top  = cy + "%";
+
+    const badge = document.createElement("div");
+    badge.className = "exit-badge " + badgeClass;
+    const count = (exitFlow && exitFlow[nid]) || 0;
+    badge.textContent = count + " P";
+
+    wrap.appendChild(badge);
+    overlayEl.appendChild(wrap);
+  }
+}
+
+function updateExitOverlays(exitFlowS, exitFlowA, exitFlowF) {
+  const ovS = document.getElementById("exit-overlay-s");
+  const ovA = document.getElementById("exit-overlay-a");
+  const ovC = document.getElementById("exit-overlay-c");
+  if (!evacMode) {
+    if (ovS) ovS.innerHTML = "";
+    if (ovA) ovA.innerHTML = "";
+    if (ovC) ovC.innerHTML = "";
+    return;
+  }
+  if (ovS) buildExitOverlay(cvS, ovS, ctxS, exitFlowS, "sta");
+  if (ovA) buildExitOverlay(cvA, ovA, ctxA, exitFlowA, "ada");
+  if (ovC) buildExitOverlay(cvC, ovC, ctxC, exitFlowF, "flow");
+}
+
+function hidePersonOverlays() {
+  ["person-overlay-s","person-overlay-a","person-overlay-c"].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el) el.innerHTML="";
+  });
+}
+
+
+function redraw() {
+  const ap = computeAdaptive(nodeStates);                 // mittleres Feld: klassisch adaptiv / kürzester sicherer Weg
+  const fp = evacMode ? computeAdaptiveFlowAware(nodeStates) : ap; // rechtes Feld: personenstromoptimiert
+  const sp = computeStatic(nodeStates);
+  const show = true;
+  const sbl  = new Set(selected&&sp[selected]?sp[selected].blocked:[]);
+  const peS  = pathEdgeSet(sp, selected, show);
+  const peA  = pathEdgeSet(ap, selected, show);
+  const peF  = pathEdgeSet(fp, selected, show);
+
+  let evacS = null, evacA = null, evacF = null, bottlenecksS = [], bottlenecksA = [], bottlenecksF = [];
+  let exitFlowS = {}, exitFlowA = {}, exitFlowF = {};
+  // Always compute exit person counts
+  for (const nid of INNER) {
+    const p = getPersons(nid);
+    if (sp[nid]) exitFlowS[sp[nid].exit] = (exitFlowS[sp[nid].exit]||0) + p;
+    if (ap[nid]) exitFlowA[ap[nid].exit] = (exitFlowA[ap[nid].exit]||0) + p;
+    if (fp[nid]) exitFlowF[fp[nid].exit] = (exitFlowF[fp[nid].exit]||0) + p;
+  }
+  if (evacMode) {
+    const resS = computeEvacTimes(sp, nodeStates);
+    const resA = computeEvacTimes(ap, nodeStates);
+    const resF = computeEvacTimes(fp, nodeStates);
+    evacS = resS; evacA = resA; evacF = resF;
+    bottlenecksS = getBottlenecks(resS.flow);
+    bottlenecksA = getBottlenecks(resA.flow);
+    bottlenecksF = getBottlenecks(resF.flow);
+  }
+
+  if (showStatic) {
+    drawScene(ctxS, nodeStates, peS, selected, true,  sbl,  evacMode, evacS, bottlenecksS, false, exitFlowS);
+    if (selected && !evacMode) drawInfobox(ctxS, selected, sp[selected], nodeStates, true, sbl);
+    if (selected &&  evacMode) drawEvacInfobox(ctxS, selected, evacS, true);
+  } else {
+    ctxS.clearRect(0,0,cvS.width,cvS.height);
+  }
+  drawScene(ctxA, nodeStates, peA, selected, false, null, evacMode, evacA, bottlenecksA, false, exitFlowA);
+  if (selected && !evacMode) drawInfobox(ctxA, selected, ap[selected], nodeStates, false, null);
+  if (selected &&  evacMode) drawEvacInfobox(ctxA, selected, evacA, false);
+
+  // Feld 3: eigenes Routing. Nicht nur Einfärbung, sondern Umverteilung nach Personenströmen.
+  if (evacMode) {
+    drawScene(ctxC, nodeStates, peF, null, false, null, true, evacF, bottlenecksF, true, exitFlowF);
+  }
+
+  updateStats(ap, sp, fp);
+  if (evacMode) updateEvacStats(evacS, evacA, bottlenecksF, sp, ap, fp, nodeStates);
+  updateExitOverlays(exitFlowS, exitFlowA, exitFlowF);
+}
+
+function realPathDist(path) {
+  const em = {};
+  for (const [a,b,w] of EDGES) em[edgeKey(a,b)] = w;
+  let d = 0;
+  for (let i = 0; i < path.length - 1; i++) d += em[edgeKey(path[i], path[i+1])] || 5;
+  return d;
+}
+
+function totalDist(paths) {
+  let d = 0;
+  for (const nid of INNER) {
+    const r = paths[nid];
+    if (r && r.path) d += realPathDist(r.path) * Math.max(1, getPersons(nid));
+  }
+  return Math.round(d * 10) / 10;
+}
+
+function updateStats(ap, sp, fp) {
+  const viaS = countPersonsViaEvent(sp || {}, nodeStates);
+  const viaA = countPersonsViaEvent(ap || {}, nodeStates);
+  const viaF = countPersonsViaEvent(fp || {}, nodeStates);
+  document.getElementById("risk-s").textContent = viaS.total > 0 ? viaS.total + " P" : "–";
+  document.getElementById("risk-a").textContent = viaA.total > 0 ? viaA.total + " P" : "–";
+  document.getElementById("risk-f").textContent = viaF.total > 0 ? viaF.total + " P" : "–";
+  document.getElementById("dist-s").textContent = "Σ " + totalDist(sp) + " m";
+  document.getElementById("dist-a").textContent = "Σ " + totalDist(ap) + " m";
+  document.getElementById("dist-f").textContent = "Σ " + totalDist(fp || ap) + " m";
+  document.getElementById("time-s").textContent = simulateEvacTime(sp) + " min";
+  document.getElementById("time-a").textContent = simulateEvacTime(ap) + " min";
+  document.getElementById("time-f").textContent = simulateEvacTime(fp || ap) + " min";
+}
+
+
+function countPersonsViaEvent(paths, states) {
+  const eventNodes = new Set(Object.keys(states).map(Number).filter(n => ["fire","smoke","blocked"].includes(states[n]||"normal")));
+  if (!eventNodes.size) return { total: 0, byNode: {} };
+
+  const byNode = {};
+  let total = 0;
+  for (const nid of INNER) {
+    const r = paths[nid];
+    if (!r || !r.path) continue;
+    const persons = getPersons(nid);
+    // "durch Ereignis" zählt nur Ereignisorte, die nach dem Startraum auf der Route liegen.
+    // Ein Ereignis im eigenen Raum ist kein durchquerter Ereignisort, sondern der Startpunkt.
+    const hit = [...new Set(r.path.slice(1).filter(n => eventNodes.has(n)))];
+    if (!hit.length) continue;
+    total += persons;
+    for (const n of hit) byNode[n] = (byNode[n] || 0) + persons;
+  }
+  return { total, byNode };
+}
+
+function updateEvacStats(evacS, evacA, bottlenecks, staticPaths, adaptPaths, flowPaths, states) {
+  const viaS = countPersonsViaEvent(staticPaths || {}, states || {});
+  const viaA = countPersonsViaEvent(adaptPaths  || {}, states || {});
+  const viaF = countPersonsViaEvent(flowPaths   || {}, states || {});
+  document.getElementById("risk-s").textContent = viaS.total > 0 ? viaS.total + " P" : "–";
+  document.getElementById("risk-a").textContent = viaA.total > 0 ? viaA.total + " P" : "–";
+  document.getElementById("risk-f").textContent = viaF.total > 0 ? viaF.total + " P" : "–";
+  document.getElementById("dist-s").textContent = "Σ " + totalDist(staticPaths) + " m";
+  document.getElementById("dist-a").textContent = "Σ " + totalDist(adaptPaths)  + " m";
+  document.getElementById("dist-f").textContent = "Σ " + totalDist(flowPaths)   + " m";
+  document.getElementById("time-s").textContent = simulateEvacTime(staticPaths) + " min";
+  document.getElementById("time-a").textContent = simulateEvacTime(adaptPaths)  + " min";
+  document.getElementById("time-f").textContent = simulateEvacTime(flowPaths)   + " min";
+}
+
+function drawEvacInfobox(ctx, nid, evac, isStatic) {
+  if (!nid || !evac || NODES[nid][3]==="exit") return;
+  const s=scale(ctx);
+  ctx.save(); ctx.scale(devicePixelRatio,devicePixelRatio);
+  const t = evac.times[nid];
+  const p = getPersons(nid);
+  const lines = [
+    `Knoten ${nid}: ${NODES[nid][2]}`,
+    `Personen: ${p}`,
+  ];
+  if (t) {
+    lines.push(`Räumungszeit: ${t.timeMin.toFixed(2)} min`);
+    lines.push(`Ziel: ${NODES[t.exit][2]}`);
+    if (!isStatic) lines.push(`Strategie: geringste Überlastung`);
+    lines.push("Pfad: "+t.path.join(" → "));
+    // Check if any edge on path is a bottleneck
+    const flow = evac.flow;
+    for (let i=0;i<t.path.length-1;i++){
+      const k=edgeKey(t.path[i],t.path[i+1]);
+      const cap=edgeCap(t.path[i],t.path[i+1]);
+      if ((flow[k]||0)>cap) lines.push(`⚠ ENGPASS bei ${NODES[t.path[i]][2]}→${NODES[t.path[i+1]][2]} (${Math.round(flow[k]||0)}/${cap} P/min)`);
+    }
+  } else {
+    lines.push("Kein Weg erreichbar!");
+  }
+  const bc = isStatic?"#f97316":"#38bdf8";
+  const lh=16, pad=8, bw=290, bh=lines.length*lh+pad*2;
+  ctx.fillStyle="#08081a"; ctx.strokeStyle=bc; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.roundRect(7,7,bw,bh,4); ctx.fill(); ctx.stroke();
+  ctx.font="10px 'Courier New',monospace"; ctx.textBaseline="top"; ctx.textAlign="left";
+  for(let i=0;i<lines.length;i++){
+    const warn=lines[i].includes("ENGPASS")||lines[i].includes("Kein");
+    ctx.fillStyle=warn?"#f59e0b":(i===0?"#fbbf24":i===1?"#38bdf8":"#e2e8f0");
+    ctx.fillText(lines[i],15,7+pad+i*lh);
+  }
+  ctx.restore();
+}
+
+
+function getNodeAt(ctx, mx, my) {
+  const s=scale(ctx);
+  for (const nidStr in NODES) {
+    const nid=+nidStr;
+    const [x,y]=nodePos(nid,s), r=nodeR(nid)+10;
+    if (Math.hypot(x-mx,y-my)<r) return nid;
+  }
+  return null;
+}
+
+function canvasClick(e, ctx) {
+  const rect=e.target.getBoundingClientRect();
+  const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+  const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+  const mx=clientX-rect.left, my=clientY-rect.top;
+  const nid=getNodeAt(ctx,mx,my);
+  if (nid===null) { selected=null; redraw(); return; }
+
+  if (NODES[nid][3]==="exit") {
+    setStatus("ℹ️ Ausgänge können nicht markiert werden.");
+    return;
+  }
+
+  const cur=nodeStates[nid]||"normal";
+  if (cur===currentMode) delete nodeStates[nid];
+  else nodeStates[nid]=currentMode;
+  selected=null;
+
+  const icons={fire:"🔥",smoke:"🌫",normal:"✅"};
+  const st=nodeStates[nid]||"normal";
+  setStatus(`${icons[st]||""} ${NODES[nid][2]}: ${st.toUpperCase()}`);
+  redraw();
+  if (evacMode) showPersonOverlays();
+}
+
+// ─────────────────────────────────────────────
+//  CONTROLS
+// ─────────────────────────────────────────────
+function setMode(m) {
+  currentMode=m;
+  document.getElementById("btn-fire").className  ="mode-btn"+(m==="fire" ?" active-fire":"");
+  document.getElementById("btn-smoke").className ="mode-btn"+(m==="smoke"?" active-smoke":"");
+}
+
+function reset() {
+  nodeStates={}; selected=null;
+  personCounts={};
+  redraw();
+  if (evacMode) showPersonOverlays();
+  setStatus("↺ Zurückgesetzt.");
+}
+
+function sc1() {
+  nodeStates={5:"fire",4:"smoke"}; selected=null; redraw();
+  setStatus("🧪 Szenario 1: Brand Zentrum, Rauch Flur N");
+}
+function sc2() {
+  nodeStates={8:"fire",12:"blocked",4:"smoke"}; selected=null; redraw();
+  setStatus("🧪 Szenario 2: Brand Konferenz, Ausgang O blockiert");
+}
+function sc3() {
+  nodeStates={11:"blocked",12:"blocked"}; selected=null; redraw();
+  setStatus("🧪 Szenario 3: Ausgang N + O blockiert → alle via Ausgang S");
+}
+
+function toggleEvacMode() {
+  evacMode = !evacMode;
+  const btn       = document.getElementById("btn-evac-mode");
+  const hdrC      = document.getElementById("hdr-c");
+  const cvWrapC   = document.getElementById("cv-wrap-c");
+  const flowCol   = document.getElementById("risk-flow-col");
+  const capLeg    = document.getElementById("cap-legend");
+  if (evacMode) {
+    btn.classList.add("active");
+    hdrC.style.display    = "flex";
+    cvWrapC.style.display = "block";
+    flowCol.style.display = "flex";
+    capLeg.classList.add("visible");
+    setStatus("👥 Evakuierungsmodus aktiv – adaptiv verteilt Räume nach Personenstrom und Kapazität.");
+    requestAnimationFrame(() => {
+      resize();
+      redraw();
+      showPersonOverlays();
+    });
+  } else {
+    btn.classList.remove("active");
+    hdrC.style.display    = "none";
+    cvWrapC.style.display = "none";
+    flowCol.style.display = "none";
+    capLeg.classList.remove("visible");
+    setStatus("↺ Fluchtweg-Modus – Modus wählen und Knoten anklicken.");
+    hidePersonOverlays();
+    resize();
+    redraw();
+  }
+}
+
+
+function toggleStatic() {
+  showStatic=!showStatic;
+  const wrapS=document.getElementById("cv-wrap-s");
+  const hdrS=document.getElementById("hdr-s");
+  const btn=document.getElementById("toggle-static");
+  if (showStatic) {
+    wrapS.style.display=""; hdrS.style.display="";
+    btn.textContent="◧ Statisch ausblenden";
+  } else {
+    wrapS.style.display="none"; hdrS.style.display="none";
+    btn.textContent="◨ Statisch einblenden";
+  }
+  redraw();
+}
+
+function setStatus(msg) {
+  document.getElementById("statusbar").textContent=msg;
+}
+
+// ─────────────────────────────────────────────
+//  EVENTS
+// ─────────────────────────────────────────────
+cvS.addEventListener("click",    e=>canvasClick(e,ctxS));
+cvA.addEventListener("click",    e=>canvasClick(e,ctxA));
+cvC.addEventListener("click",    e=>canvasClick(e,ctxC));
+cvS.addEventListener("touchend", e=>{e.preventDefault();canvasClick(e,ctxS);},{passive:false});
+cvA.addEventListener("touchend", e=>{e.preventDefault();canvasClick(e,ctxA);},{passive:false});
+cvC.addEventListener("touchend", e=>{e.preventDefault();canvasClick(e,ctxC);},{passive:false});
+
+window.addEventListener("resize", ()=>{ resize(); redraw(); if(evacMode) showPersonOverlays(); });
+
+// ─────────────────────────────────────────────
+//  INIT
+// ─────────────────────────────────────────────
+resize();
+redraw();
+</script>
+</body>
+</html>
